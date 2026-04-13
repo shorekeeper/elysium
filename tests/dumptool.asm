@@ -199,6 +199,8 @@ _start:
 
     ; parse flags
 .flags:
+    test rsi, rsi
+    jz .go
     call skip_ws
     test rsi, rsi
     jz .go
