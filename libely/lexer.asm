@@ -54,30 +54,38 @@ kw_u8:db "u8",0
 kw_u16:db "u16",0
 kw_u32:db "u32",0
 kw_u64:db "u64",0
+kw_while:db "while",0
+kw_for:db "for",0
+kw_in:db "in",0
+kw_break:db "break",0
+kw_continue:db "continue",0
 align 8
 kw_table:
- dq kw_module,TOK_MODULE,6, kw_fn,TOK_FN,2, kw_let,TOK_LET,3
- dq kw_return,TOK_RETURN,6, kw_if,TOK_IF,2, kw_else,TOK_ELSE,4
- dq kw_print,TOK_PRINT,5, kw_match,TOK_MATCH,5, kw_anchor,TOK_ANCHOR,6
- dq kw_unwind,TOK_UNWIND,6, kw_supervise,TOK_SUPERVISE,9, kw_mut,TOK_MUT,3
- dq kw_guard,TOK_GUARD,5, kw_public,TOK_PUBLIC,6, kw_private,TOK_PRIVATE,7
- dq kw_protected,TOK_PROTECTED,9, kw_sealed,TOK_SEALED,6
- dq kw_true,TOK_TRUE,4, kw_false,TOK_FALSE,5
- dq kw_bool,TOK_BOOL_KW,4, kw_i8,TOK_I8_KW,2
- dq kw_i16,TOK_I16_KW,3, kw_i32,TOK_I32_KW,3
- dq kw_i64,TOK_I64_KW,3, kw_ptr,TOK_PTR_KW,3
- dq kw_void,TOK_VOID_KW,4, kw_raw,TOK_RAW,3
- dq kw_addr,TOK_ADDR,4, kw_import,TOK_IMPORT,6
- dq kw_type,TOK_TYPE_KW,4, kw_pstr,TOK_PRINT_STR,9
- dq kw_len,TOK_LEN,3, kw_store,TOK_STORE,5
- dq kw_load,TOK_LOAD,4, kw_claim,TOK_CLAIM,5
- dq kw_release,TOK_RELEASE,7, kw_claim_g,TOK_CLAIM_G,13
- dq kw_release_g,TOK_RELEASE_G,16, kw_pool_new,TOK_POOL_NEW,11
- dq kw_pool_claim,TOK_POOL_CLAIM,10, kw_pool_drain,TOK_POOL_DRAIN,10
- dq kw_arrlen,TOK_ARRLEN,6
- dq kw_u8,TOK_U8_KW,2, kw_u16,TOK_U16_KW,3
- dq kw_u32,TOK_U32_KW,3, kw_u64,TOK_U64_KW,3
- dq 0,0,0
+    dq kw_module,TOK_MODULE,6, kw_fn,TOK_FN,2, kw_let,TOK_LET,3
+    dq kw_return,TOK_RETURN,6, kw_if,TOK_IF,2, kw_else,TOK_ELSE,4
+    dq kw_print,TOK_PRINT,5, kw_match,TOK_MATCH,5, kw_anchor,TOK_ANCHOR,6
+    dq kw_unwind,TOK_UNWIND,6, kw_supervise,TOK_SUPERVISE,9, kw_mut,TOK_MUT,3
+    dq kw_guard,TOK_GUARD,5, kw_public,TOK_PUBLIC,6, kw_private,TOK_PRIVATE,7
+    dq kw_protected,TOK_PROTECTED,9, kw_sealed,TOK_SEALED,6
+    dq kw_true,TOK_TRUE,4, kw_false,TOK_FALSE,5
+    dq kw_bool,TOK_BOOL_KW,4, kw_i8,TOK_I8_KW,2
+    dq kw_i16,TOK_I16_KW,3, kw_i32,TOK_I32_KW,3
+    dq kw_i64,TOK_I64_KW,3, kw_ptr,TOK_PTR_KW,3
+    dq kw_void,TOK_VOID_KW,4, kw_raw,TOK_RAW,3
+    dq kw_addr,TOK_ADDR,4, kw_import,TOK_IMPORT,6
+    dq kw_type,TOK_TYPE_KW,4, kw_pstr,TOK_PRINT_STR,9
+    dq kw_len,TOK_LEN,3, kw_store,TOK_STORE,5
+    dq kw_load,TOK_LOAD,4, kw_claim,TOK_CLAIM,5
+    dq kw_release,TOK_RELEASE,7, kw_claim_g,TOK_CLAIM_G,13
+    dq kw_release_g,TOK_RELEASE_G,16, kw_pool_new,TOK_POOL_NEW,11
+    dq kw_pool_claim,TOK_POOL_CLAIM,10, kw_pool_drain,TOK_POOL_DRAIN,10
+    dq kw_arrlen,TOK_ARRLEN,6
+    dq kw_u8,TOK_U8_KW,2, kw_u16,TOK_U16_KW,3
+    dq kw_u32,TOK_U32_KW,3, kw_u64,TOK_U64_KW,3
+    dq kw_while,TOK_WHILE,5, kw_for,TOK_FOR,3
+    dq kw_in,TOK_IN,2, kw_break,TOK_BREAK,5
+    dq kw_continue,TOK_CONTINUE,8
+dq 0,0,0
 
 section .bss
 lex_source_buf: resq 1       ; pointer to source text buffer

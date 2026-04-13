@@ -1,0 +1,47 @@
+module Main {
+  public fn main() -> i64 {
+    // while + assignment
+    let i = 0;
+    while i < 5 {
+      print(i);
+      i = i + 1;
+    }
+
+    // for range
+    for j in 0..5 {
+      print(j);
+    }
+
+    // break
+    for k in 0..10 {
+      if k == 3 {
+        break;
+      }
+      print(k);
+    }
+
+    // continue
+    for m in 0..5 {
+      if m == 2 {
+        continue;
+      }
+      print(m);
+    }
+
+    // nested
+    for a in 0..3 {
+      for b in 0..3 {
+        print(a * 10 + b);
+      }
+    }
+
+    // while with complex condition
+    let x = 100;
+    while x > 0 {
+      x = x - 30;
+    }
+    print(x);
+
+    return 0;
+  }
+}

@@ -38,24 +38,27 @@ fn_nptr:     resq LOWER_MAX
 fn_nlen:     resq LOWER_MAX
 fn_label:    resq LOWER_MAX
 fn_count:    resq 1
-rt_init_label:       resq 1
-rt_print_label:      resq 1
-rt_pstr_label:       resq 1
-rt_ckpt_save_label:  resq 1
-rt_ckpt_restore_label: resq 1
-rt_claim_label:      resq 1
-rt_release_label:    resq 1
-rt_pool_create_label: resq 1
-rt_pool_claim_label:  resq 1
-rt_pool_drain_label:  resq 1
-lower_entry_label:   resq 1
-str_pool:        resb LOWER_STR_POOL
-str_pool_pos:    resq 1
+rt_init_label:          resq 1
+rt_print_label:         resq 1
+rt_pstr_label:          resq 1
+rt_ckpt_save_label:     resq 1
+rt_ckpt_restore_label:  resq 1
+rt_claim_label:         resq 1
+rt_release_label:       resq 1
+rt_pool_create_label:   resq 1
+rt_pool_claim_label:    resq 1
+rt_pool_drain_label:    resq 1
+lower_entry_label:      resq 1
+str_pool:               resb LOWER_STR_POOL
+str_pool_pos:           resq 1
 ; temporaries for record field lowering
-arr_elem_type: resq 1
-arr_elem_size: resq 1
-rec_fld_off:   resq 1
-rec_fld_type:  resq 1
+arr_elem_type:  resq 1
+arr_elem_size:  resq 1
+rec_fld_off:    resq 1
+rec_fld_type:   resq 1
+loop_cont_stk:  resq 32
+loop_end_stk:   resq 32
+loop_stk_depth: resq 1
 
 section .data
 nm_main: db "main"
@@ -304,6 +307,20 @@ resolve_let_type:
     jne .ok
     mov rax, TYPE_I64
 .ok:ret
+
+; loop_push: rdi=continue_label, rsi=break_label
+loop_push:
+    push rax
+    mov rax,[loop_stk_depth]
+    mov [loop_cont_stk+rax*8],rdi
+    mov [loop_end_stk+rax*8],rsi
+    inc qword[loop_stk_depth]
+    pop rax
+    ret
+
+loop_pop:
+    dec qword[loop_stk_depth]
+    ret
 
 ; ==================== SYMTAB INDIRECT HELPERS ====================
 ; sym_off etc. are now pointers to heap arrays.
@@ -920,6 +937,7 @@ lower_module:
     call treg_init
     mov qword[done_cnt],0
     mov qword[fn_count],0
+    mov qword[loop_stk_depth],0
     test rdi,rdi
     jz .end
     ; first pass: register all function names and type definitions
@@ -1268,6 +1286,16 @@ lower_stmt:
     je .field_set
     cmp rax,NODE_RAW
     je .raw_blk
+    cmp rax,NODE_WHILE
+    je .while_
+    cmp rax,NODE_FOR
+    je .for_
+    cmp rax,NODE_BREAK
+    je .break_
+    cmp rax,NODE_CONTINUE
+    je .continue_
+    cmp rax,NODE_ASSIGN
+    je .assign
     jmp .done
 
 ; ---- let ----
@@ -2118,6 +2146,192 @@ lower_stmt:
     sub rsi,[rec_fld_off]
     mov rdx,[rec_fld_type]
     mov rdi,MIR_SSTORE
+    call mir_emit
+    jmp .done
+
+; ---- while expr { body } ----
+.while_:
+    call mir_new_label
+    mov r13,rax
+    call mir_new_label
+    mov r14,rax
+    ; push loop: continue->cond, break->end
+    mov rdi,r13
+    mov rsi,r14
+    call loop_push
+    ; cond label
+    mov rdi,MIR_LABEL
+    mov rsi,r13
+    call m2
+    ; eval condition
+    mov rdi,[r12+16]
+    call lower_expr
+    mov rdi,MIR_TEST
+    xor rsi,rsi
+    call m2
+    mov rdi,MIR_JZ
+    mov rsi,r14
+    call m2
+    ; body
+    inc qword[sym_depth]
+    mov rdi,[r12+24]
+    call lower_stmt_list
+    call sym_leave_scope
+    dec qword[sym_depth]
+    ; loop back
+    mov rdi,MIR_JMP
+    mov rsi,r13
+    call m2
+    ; end
+    mov rdi,MIR_LABEL
+    mov rsi,r14
+    call m2
+    call loop_pop
+    jmp .done
+
+; ---- for ident in start..end { body } ----
+; node layout: [48/56]=name, [24]=start, [8]=end, [16]=body
+.for_:
+    inc qword[sym_depth]
+    ; allocate iterator variable
+    mov rsi,[r12+48]
+    mov rcx,[r12+56]
+    call sym_push
+    mov r13,rax
+    mov rdi,TYPE_I64
+    call sym_set_last_type
+    ; eval start, store in iter
+    mov rdi,[r12+24]
+    call lower_expr
+    mov rdi,MIR_SSTORE
+    mov rsi,r13
+    call m2
+    ; eval end, store in temp
+    mov rdi,8
+    call sym_alloc_bytes
+    mov r14,rax
+    mov rdi,[r12+8]
+    call lower_expr
+    mov rdi,MIR_SSTORE
+    mov rsi,r14
+    call m2
+    ; allocate 3 labels: cond, inc (continue target), end (break target)
+    call mir_new_label
+    mov r15,rax
+    call mir_new_label
+    mov rbx,rax
+    call mir_new_label
+    push rax
+    ; push loop: continue->inc(rbx), break->end(stack top)
+    mov rdi,rbx
+    mov rsi,rax
+    call loop_push
+    ; cond label
+    mov rdi,MIR_LABEL
+    mov rsi,r15
+    call m2
+    ; load iter, push; load end; pop rbx; cmp_ge; test; jnz end
+    mov rdi,MIR_SLOAD
+    mov rsi,r13
+    call m2
+    mov rdi,MIR_PUSH
+    xor rsi,rsi
+    call m2
+    mov rdi,MIR_SLOAD
+    mov rsi,r14
+    call m2
+    mov rdi,MIR_POP_RBX
+    xor rsi,rsi
+    call m2
+    mov rdi,MIR_CMP_GE
+    xor rsi,rsi
+    call m2
+    mov rdi,MIR_TEST
+    xor rsi,rsi
+    call m2
+    mov rdi,MIR_JNZ
+    mov rsi,[rsp]
+    call m2
+    ; body
+    mov rdi,[r12+16]
+    call lower_stmt_list
+    ; inc label (continue lands here)
+    mov rdi,MIR_LABEL
+    mov rsi,rbx
+    call m2
+    ; iter = iter + 1
+    mov rdi,MIR_SLOAD
+    mov rsi,r13
+    call m2
+    mov rdi,MIR_PUSH
+    xor rsi,rsi
+    call m2
+    mov rdi,MIR_ICONST
+    mov rsi,1
+    call m2
+    mov rdi,MIR_POP_RBX
+    xor rsi,rsi
+    call m2
+    mov rdi,MIR_ADD
+    xor rsi,rsi
+    call m2
+    mov rdi,MIR_SSTORE
+    mov rsi,r13
+    call m2
+    ; jmp cond
+    mov rdi,MIR_JMP
+    mov rsi,r15
+    call m2
+    ; end label
+    pop rsi
+    mov rdi,MIR_LABEL
+    call m2
+    call loop_pop
+    call sym_leave_scope
+    dec qword[sym_depth]
+    jmp .done
+
+; ---- break ----
+.break_:
+    mov rax,[loop_stk_depth]
+    test rax,rax
+    jz .done
+    dec rax
+    mov rdi,MIR_JMP
+    mov rsi,[loop_end_stk+rax*8]
+    call m2
+    jmp .done
+
+; ---- continue ----
+.continue_:
+    mov rax,[loop_stk_depth]
+    test rax,rax
+    jz .done
+    dec rax
+    mov rdi,MIR_JMP
+    mov rsi,[loop_cont_stk+rax*8]
+    call m2
+    jmp .done
+
+; ---- x = expr (reassignment) ----
+.assign:
+    mov rsi,[r12+48]
+    mov rcx,[r12+56]
+    call sym_get_index
+    cmp rax,-1
+    je .done
+    mov rbx,rax
+    push r11
+    mov r11,[sym_off]
+    mov r13,[r11+rbx*8]
+    mov r11,[sym_type]
+    mov r14,[r11+rbx*8]
+    pop r11
+    mov rdi,[r12+16]
+    call lower_expr
+    mov rdi,MIR_SSTORE
+    mov rsi,r13
+    mov rdx,r14
     call mir_emit
     jmp .done
 

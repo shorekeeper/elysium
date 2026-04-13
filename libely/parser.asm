@@ -622,10 +622,81 @@ p_stmt:
     je .relg
     cmp rax,TOK_POOL_DRAIN
     je .pdrain
+    cmp rax,TOK_WHILE
+    je .while_
+    cmp rax,TOK_FOR
+    je .for_
+    cmp rax,TOK_BREAK
+    je .break_
+    cmp rax,TOK_CONTINUE
+    je .cont_
     cmp rax,TOK_IDENT
     je .maybe_idx
     call ea
     xor rax,rax
+    jmp .done
+; while expr { stmts }
+.while_:call ea
+    call p_expr
+    mov r12,rax
+    mov rdi,TOK_LBRACE
+    call ex
+    call p_slist
+    mov r13,rax
+    mov rdi,TOK_RBRACE
+    call ex
+    call new_node
+    mov qword[rax],NODE_WHILE
+    mov [rax+16],r12
+    mov [rax+24],r13
+    jmp .done
+
+; for ident in start..end { stmts }
+.for_:call ea
+    call ct
+    mov r12,rbx
+    mov r13,rcx
+    call ea
+    mov rdi,TOK_IN
+    call ex
+    call p_expr
+    push rax
+    mov rdi,TOK_DOTDOT
+    call ex
+    call p_expr
+    push rax
+    mov rdi,TOK_LBRACE
+    call ex
+    call p_slist
+    push rax
+    mov rdi,TOK_RBRACE
+    call ex
+    call new_node
+    pop rbx
+    mov [rax+16],rbx
+    pop rbx
+    mov [rax+8],rbx
+    pop rbx
+    mov [rax+24],rbx
+    mov qword[rax],NODE_FOR
+    mov [rax+48],r12
+    mov [rax+56],r13
+    jmp .done
+
+; break;
+.break_:call ea
+    mov rdi,TOK_SEMICOLON
+    call ex
+    call new_node
+    mov qword[rax],NODE_BREAK
+    jmp .done
+
+; continue;
+.cont_:call ea
+    mov rdi,TOK_SEMICOLON
+    call ex
+    call new_node
+    mov qword[rax],NODE_CONTINUE
     jmp .done
 .maybe_idx:
     mov r12,rbx
@@ -685,6 +756,21 @@ p_stmt:
     mov [rax+56],rbx
     jmp .done
 .idx_bail:
+    cmp rax,TOK_EQUALS
+    jne .idx_skip
+    call ea
+    call p_expr
+    push rax
+    mov rdi,TOK_SEMICOLON
+    call ex
+    pop rbx
+    call new_node
+    mov qword[rax],NODE_ASSIGN
+    mov [rax+48],r12
+    mov [rax+56],r13
+    mov [rax+16],rbx
+    jmp .done
+.idx_skip:
     xor rax,rax
     jmp .done
 .let:call ea
