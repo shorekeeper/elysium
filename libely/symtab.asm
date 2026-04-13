@@ -7,6 +7,7 @@ default rel
 %pragma warning disable number-overflow ; NASM IDI HANUI
 extern ely_memcmp, vmem_alloc, vmem_free, vmem_realloc
 global sym_init, sym_push, sym_lookup, sym_get_index
+global sym_nptr, sym_nlen
 global sym_leave_scope, sym_alloc_bytes, sym_depth
 global sym_bstate, sym_bcnt, sym_alias, sym_off, sym_count
 global sym_type, sym_set_last_type, sym_arrlen, sym_push_arr
