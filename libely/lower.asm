@@ -136,6 +136,23 @@ rt_win_mov_ecx_eax:
     db 0x89,0xC1
 rt_win_mov_ecx_eax_len equ $ - rt_win_mov_ecx_eax
 
+; static raw bytes for parameter register moves (must NOT be on stack!)
+rt_mov_rax_rdx:
+    db 0x48,0x89,0xD0         ; mov rax, rdx
+rt_mov_rax_rdx_len equ $ - rt_mov_rax_rdx
+
+rt_mov_rax_rcx:
+    db 0x48,0x89,0xC8         ; mov rax, rcx
+rt_mov_rax_rcx_len equ $ - rt_mov_rax_rcx
+
+rt_mov_rax_r8:
+    db 0x4C,0x89,0xC0         ; mov rax, r8
+rt_mov_rax_r8_len equ $ - rt_mov_rax_r8
+
+rt_mov_rax_r9:
+    db 0x4C,0x89,0xC8         ; mov rax, r9
+rt_mov_rax_r9_len equ $ - rt_mov_rax_r9
+
 ; Windows claim/release raw bytes
 rt_win_claim_pre:
     db 0x53,0x48,0x8D,0x5F,0x08
@@ -1043,18 +1060,29 @@ lower_clause:
     call m2
     jmp .a_done
 .a_rdx:
-    ; no dedicated MIR opcode, emit raw: mov rax, rdx (48 89 D0)
-    push rax
-    sub rsp,8
-    mov byte[rsp],0x48
-    mov byte[rsp+1],0x89
-    mov byte[rsp+2],0xD0
     mov rdi,MIR_RAW_BYTES
-    mov rsi,rsp
-    mov rdx,3
+    lea rsi,[rt_mov_rax_rdx]
+    mov rdx,rt_mov_rax_rdx_len
     call m3
-    add rsp,8
-    pop rax
+    jmp .a_done
+.a_rcx:
+    mov rdi,MIR_RAW_BYTES
+    lea rsi,[rt_mov_rax_rcx]
+    mov rdx,rt_mov_rax_rcx_len
+    call m3
+    jmp .a_done
+.a_r8:
+    mov rdi,MIR_RAW_BYTES
+    lea rsi,[rt_mov_rax_r8]
+    mov rdx,rt_mov_rax_r8_len
+    call m3
+    jmp .a_done
+.a_r9:
+    mov rdi,MIR_RAW_BYTES
+    lea rsi,[rt_mov_rax_r9]
+    mov rdx,rt_mov_rax_r9_len
+    call m3
+    jmp .a_done
 .a_done:
     pop r15
     pop rbx
