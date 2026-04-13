@@ -1048,6 +1048,12 @@ lower_clause:
     je .a_rsi
     cmp r15,2
     je .a_rdx
+    cmp r15,3
+    je .a_rcx
+    cmp r15,4
+    je .a_r8
+    cmp r15,5
+    je .a_r9
     jmp .a_done
 .a_rdi:
     mov rdi,MIR_MOV_RAX_RDI
@@ -1106,6 +1112,14 @@ lower_clause:
     je .pl_rdi
     cmp r15,1
     je .pl_rsi
+    cmp r15,2
+    je .pl_rdx
+    cmp r15,3
+    je .pl_rcx
+    cmp r15,4
+    je .pl_r8
+    cmp r15,5
+    je .pl_r9
     jmp .pl_done
 .pl_rdi:
     mov rdi,MIR_MOV_RAX_RDI
@@ -1116,6 +1130,29 @@ lower_clause:
     mov rdi,MIR_MOV_RAX_RSI
     xor rsi,rsi
     call m2
+.pl_rdx:
+    mov rdi,MIR_RAW_BYTES
+    lea rsi,[rt_mov_rax_rdx]
+    mov rdx,rt_mov_rax_rdx_len
+    call m3
+    jmp .pl_done
+.pl_rcx:
+    mov rdi,MIR_RAW_BYTES
+    lea rsi,[rt_mov_rax_rcx]
+    mov rdx,rt_mov_rax_rcx_len
+    call m3
+    jmp .pl_done
+.pl_r8:
+    mov rdi,MIR_RAW_BYTES
+    lea rsi,[rt_mov_rax_r8]
+    mov rdx,rt_mov_rax_r8_len
+    call m3
+    jmp .pl_done
+.pl_r9:
+    mov rdi,MIR_RAW_BYTES
+    lea rsi,[rt_mov_rax_r9]
+    mov rdx,rt_mov_rax_r9_len
+    call m3
 .pl_done:
     pop r15
     pop rbx
