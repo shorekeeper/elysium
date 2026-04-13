@@ -1,0 +1,8 @@
+module Main {
+  public fn main() -> i64 {
+    print_str("alpha\n");
+    print_str("beta\n");
+    print_str("gamma\n");
+    return 0;
+  }
+}

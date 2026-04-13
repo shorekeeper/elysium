@@ -1,0 +1,17 @@
+module Main {
+  type Result = | Ok(i64) | Err(i64)
+
+  public fn main() -> i64 {
+    let r = Ok(42);
+    match r {
+      Ok(v) => print(v);
+      Err(e) => print(e);
+    }
+    let e = Err(404);
+    match e {
+      Ok(v) => print(v);
+      Err(code) => print(code);
+    }
+    return 0;
+  }
+}

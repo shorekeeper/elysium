@@ -1,0 +1,13 @@
+module Main {
+  fn fib(0) -> i64 { return 0; }
+  fn fib(1) -> i64 { return 1; }
+  fn fib(n) -> i64 { return fib(n - 1) + fib(n - 2); }
+
+  public fn main() -> i64 {
+    print(fib(0));
+    print(fib(1));
+    print(fib(5));
+    print(fib(10));
+    return 0;
+  }
+}

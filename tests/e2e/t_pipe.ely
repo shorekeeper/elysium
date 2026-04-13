@@ -1,0 +1,14 @@
+module Main {
+  fn double(x) -> i64 {
+    return x * 2;
+  }
+  fn add_one(x) -> i64 {
+    return x + 1;
+  }
+
+  public fn main() -> i64 {
+    let r = 5 |> double |> add_one;
+    print(r);
+    return 0;
+  }
+}

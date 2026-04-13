@@ -1,0 +1,157 @@
+module Main {
+  type Pixel { r :: u8; g :: u8; b :: u8; }
+  type Result = | Ok(i64) | Err(i64)
+
+  fn add(a, b) -> i64 {
+    return a + b;
+  }
+
+  fn fib(0) -> i64 { return 0; }
+  fn fib(1) -> i64 { return 1; }
+  fn fib(n) -> i64 { return fib(n - 1) + fib(n - 2); }
+
+  fn double(x) -> i64 { return x * 2; }
+
+  public fn main() -> i64 {
+    // strings
+    print_str("=== strings ===\n");
+    print_str("hello world\n");
+
+    // arithmetic
+    print_str("=== arith ===\n");
+    print(2 + 3);
+    print(10 - 4);
+    print(6 * 7);
+    print(20 / 4);
+
+    // typed scalars
+    print_str("=== types ===\n");
+    let a :: i8 = 127;
+    let b :: u8 = 255;
+    let c :: i32 = 100000;
+    let d :: i8 = 200;
+    let e :: u8 = 256;
+    print(a);
+    print(b);
+    print(c);
+    print(d);
+    print(e);
+
+    // function calls + pattern matching in fn args
+    print_str("=== fib ===\n");
+    print(fib(0));
+    print(fib(1));
+    print(fib(5));
+    print(fib(10));
+
+    // pipe
+    print_str("=== pipe ===\n");
+    let r = 5 |> double |> add(1);
+    print(r);
+
+    // if/else
+    print_str("=== if ===\n");
+    let x = 42;
+    if x == 42 {
+      print(1);
+    } else {
+      print(0);
+    }
+
+    // match literal + wildcard
+    print_str("=== match ===\n");
+    let m = 3;
+    match m {
+      1 => print(100);
+      2 => print(200);
+      3 => print(300);
+      _ => print(999);
+    }
+
+    // match bind + guard
+    print_str("=== guard ===\n");
+    let g = 10;
+    match g {
+      n guard [n > 5] => print(n);
+      _ => print(0);
+    }
+
+    // arrays + indexing + arrlen
+    print_str("=== array ===\n");
+    let arr = [10, 20, 30, 40, 50];
+    print(arr[0]);
+    print(arr[2]);
+    print(arr[4]);
+    arr[1] = 99;
+    print(arr[1]);
+    print(arrlen(arr));
+
+    // typed record with u8 fields
+    print_str("=== record ===\n");
+    let px = Pixel { r = 255, g = 128, b = 0 };
+    print(px.r);
+    print(px.g);
+    print(px.b);
+    px.b = 64;
+    print(px.b);
+
+    // tagged union
+    print_str("=== union ===\n");
+    let ok = Ok(42);
+    match ok {
+      Ok(v) => print(v);
+      Err(v) => print(v);
+    }
+    let er = Err(404);
+    match er {
+      Ok(v) => print(v);
+      Err(v) => print(v);
+    }
+
+    // borrow
+    print_str("=== borrow ===\n");
+    let val = 100;
+    let ref = &val;
+    print(ref);
+
+    // anchor + unwind
+    print_str("=== anchor ===\n");
+    anchor safe {
+      print(1);
+      unwind safe;
+      print(2);
+    }
+    print(3);
+
+    // supervise (div by zero recovery)
+    print_str("=== supervise ===\n");
+    supervise {
+      let z = 10 / 0;
+      print(z);
+    }
+    print(99);
+
+    // heap alloc
+    print_str("=== alloc ===\n");
+    let mem = claim(64);
+    store(mem, 0, 42);
+    store(mem, 1, 77);
+    print(load(mem, 0));
+    print(load(mem, 1));
+    release(mem);
+
+    // pool
+    print_str("=== pool ===\n");
+    let pool = pool_create(1024);
+    let pa = pool_claim(pool, 8);
+    let pb = pool_claim(pool, 8);
+    store(pa, 0, 111);
+    store(pb, 0, 222);
+    print(load(pa, 0));
+    print(load(pb, 0));
+    pool_drain(pool);
+
+    print_str("=== done ===\n");
+    return 0;
+  }
+}

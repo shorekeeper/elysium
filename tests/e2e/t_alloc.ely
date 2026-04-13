@@ -1,0 +1,11 @@
+module Main {
+  public fn main() -> i64 {
+    let mem = claim(64);
+    store(mem, 0, 42);
+    store(mem, 1, 77);
+    print(load(mem, 0));
+    print(load(mem, 1));
+    release(mem);
+    return 0;
+  }
+}

@@ -1,0 +1,15 @@
+module Main {
+  public fn main() -> i64 {
+    let y = 10;
+    match y {
+      n guard [n > 5] => print(n);
+      _ => print(0);
+    }
+    let z = 2;
+    match z {
+      n guard [n > 5] => print(n);
+      _ => print(0);
+    }
+    return 0;
+  }
+}

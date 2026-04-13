@@ -1,0 +1,13 @@
+module Main {
+  type Point { x :: i64; y :: i64; }
+
+  public fn main() -> i64 {
+    let p = Point { x = 10, y = 20 };
+    print(p.x);
+    print(p.y);
+    p.x = 42;
+    print(p.x);
+    print(p.x + p.y);
+    return 0;
+  }
+}

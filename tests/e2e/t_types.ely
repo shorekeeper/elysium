@@ -1,0 +1,15 @@
+module Main {
+  public fn main() -> i64 {
+    let a :: i8 = 127;
+    let b :: u8 = 255;
+    let c :: i32 = 100000;
+    let d :: i8 = 200;
+    let e :: u8 = 256;
+    print(a);
+    print(b);
+    print(c);
+    print(d);
+    print(e);
+    return 0;
+  }
+}

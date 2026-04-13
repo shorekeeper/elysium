@@ -1,0 +1,13 @@
+module Main {
+  public fn main() -> i64 {
+    let p = pool_create(1024);
+    let a = pool_claim(p, 8);
+    let b = pool_claim(p, 8);
+    store(a, 0, 111);
+    store(b, 0, 222);
+    print(load(a, 0));
+    print(load(b, 0));
+    pool_drain(p);
+    return 0;
+  }
+}

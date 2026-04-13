@@ -1,0 +1,10 @@
+module Main {
+  public fn main() -> i64 {
+    supervise {
+      let x = 10 / 0;
+      print(x);
+    }
+    print(99);
+    return 0;
+  }
+}

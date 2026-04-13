@@ -1,0 +1,11 @@
+module Main {
+  public fn main() -> i64 {
+    anchor safe {
+      print(1);
+      unwind safe;
+      print(2);
+    }
+    print(3);
+    return 0;
+  }
+}

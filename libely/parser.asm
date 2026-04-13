@@ -1,0 +1,1609 @@
+default rel
+%include "defs.inc"
+extern lex_tokens,lex_token_count,new_node,platform_write
+extern resolve_type_token
+global parser_init,parser_run
+
+section .data
+err_pre:db "  [error] line ",0
+err_sep:db ": ",0
+err_syn:db "unexpected token",10,0
+err_expect:db "expected token not found",10,0
+err_nl:db 10,0
+
+section .bss
+pp: resq 1
+cur_line: resq 1
+pnum_buf: resb 32
+
+section .text
+
+; print null-terminated string from rdi
+pstr:push rsi
+    push rdx
+    mov rsi,rdi
+    xor rdx,rdx
+.l: cmp byte[rsi+rdx],0
+    je .g
+    inc rdx
+    jmp .l
+.g: call platform_write
+    pop rdx
+    pop rsi
+    ret
+
+; print decimal number in rax
+pnum:push rbx
+    push rcx
+    push rdx
+    push rsi
+    test rax,rax
+    jnz .nz
+    mov byte[pnum_buf],'0'
+    mov rsi,pnum_buf
+    mov rdx,1
+    call platform_write
+    jmp .end
+.nz:xor rcx,rcx
+    mov rbx,10
+.ext:test rax,rax
+    jz .bld
+    xor rdx,rdx
+    div rbx
+    add dl,'0'
+    push rdx
+    inc rcx
+    jmp .ext
+.bld:mov rbx,rcx
+    xor rdx,rdx
+.pop:test rcx,rcx
+    jz .wr
+    pop rax
+    mov [pnum_buf+rdx],al
+    inc rdx
+    dec rcx
+    jmp .pop
+.wr:mov rsi,pnum_buf
+    mov rdx,rbx
+    call platform_write
+.end:pop rsi
+    pop rdx
+    pop rcx
+    pop rbx
+    ret
+
+; print error with line number: "  [error] line N: <msg>"
+; rdi = error message
+perr:push rdi
+    mov rdi,err_pre
+    call pstr
+    mov rax,[cur_line]
+    call pnum
+    mov rdi,err_sep
+    call pstr
+    pop rdi
+    call pstr
+    ret
+
+; ct: read current token -> rax=type, rbx=value, rcx=length
+; also updates cur_line
+ct: push rdx
+    push r11
+    mov rax,[pp]
+    imul rdx,rax,TOKEN_SIZE
+    mov r11,[lex_tokens]
+    mov rbx,[r11+rdx+8]
+    mov rcx,[r11+rdx+16]
+    push rax
+    mov rax,[r11+rdx+24]
+    mov [cur_line],rax
+    pop rax
+    mov rax,[r11+rdx]
+    pop r11
+    pop rdx
+    ret
+
+ea: inc qword[pp]
+    ret
+
+; expect: consume token of type rdi, or print error with line
+ex: call ct
+    cmp rax,rdi
+    jne .f
+    call ea
+    ret
+.f: push rdi
+    mov rdi,err_expect
+    call perr
+    pop rdi
+    ret
+; peek next token type -> rax (does not advance, preserves rbx/rcx)
+pk: push rdx
+    push r11
+    mov rax,[pp]
+    inc rax
+    cmp rax,[lex_token_count]
+    jge .pk_eof
+    imul rdx,rax,TOKEN_SIZE
+    mov r11,[lex_tokens]
+    mov rax,[r11+rdx]
+    pop r11
+    pop rdx
+    ret
+.pk_eof:
+    mov rax,TOK_EOF
+    pop r11
+    pop rdx
+    ret
+
+parse_type:
+    call ct
+    push rax
+    call ea
+    pop rax
+    call resolve_type_token
+    ret
+
+parser_init:
+    mov qword[pp],0
+    mov qword[cur_line],1
+    ret
+
+parser_run:
+    push rbx
+    push r12
+    push r13
+    push r14
+    push r15
+    call p_module
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    pop rbx
+    ret
+
+p_module:
+    push rbx
+    push r12
+    push r13
+    push r14
+    mov rdi,TOK_MODULE
+    call ex
+    call ct
+    mov r12,rbx
+    mov r13,rcx
+    call ea
+    mov rdi,TOK_LBRACE
+    call ex
+    call new_node
+    mov r14,rax
+    mov qword[r14],NODE_MODULE
+    mov [r14+48],r12
+    mov [r14+56],r13
+    xor r12,r12
+.l: call ct
+    cmp rax,TOK_RBRACE
+    je .c
+    cmp rax,TOK_EOF
+    je .c
+    call p_member
+    test rax,rax
+    jz .l
+    cmp qword[r14+16],0
+    jne .s
+    mov [r14+16],rax
+    mov r12,rax
+    jmp .l
+.s: mov [r12+32],rax
+    mov r12,rax
+    jmp .l
+.c: mov rdi,TOK_RBRACE
+    call ex
+    mov rax,r14
+    pop r14
+    pop r13
+    pop r12
+    pop rbx
+    ret
+
+p_member:
+    push rbx
+    push r12
+    mov r12,MOD_PUBLIC
+    call ct
+    cmp rax,TOK_PUBLIC
+    je .pu
+    cmp rax,TOK_PRIVATE
+    je .pr
+    cmp rax,TOK_PROTECTED
+    je .pt
+    cmp rax,TOK_SEALED
+    je .se
+    jmp .fn
+.pu:mov r12,MOD_PUBLIC
+    call ea
+    jmp .fn
+.pr:mov r12,MOD_PRIVATE
+    call ea
+    jmp .fn
+.pt:mov r12,MOD_PROTECTED
+    call ea
+    jmp .fn
+.se:mov r12,MOD_SEALED
+    call ea
+.fn:call ct
+    cmp rax,TOK_FN
+    jne .ty
+    call p_func
+    test rax,rax
+    jz .d
+    or [rax+40],r12
+    jmp .d
+.ty:cmp rax,TOK_TYPE_KW
+    jne .sk
+    call p_type_def
+    jmp .d
+.sk:call ea
+    xor rax,rax
+.d: pop r12
+    pop rbx
+    ret
+p_type_def:
+    push rbx
+    push rcx
+    push r12
+    push r13
+    push r14
+    push r15
+    call ea
+    call ct
+    mov r12,rbx
+    mov r13,rcx
+    call ea
+    call ct
+    cmp rax,TOK_LBRACE
+    je .td_rec
+    cmp rax,TOK_EQUALS
+    je .td_union
+    xor rax,rax
+    jmp .td_done
+; record: type Name { field :: type; ... }
+.td_rec:
+    mov rdi,TOK_LBRACE
+    call ex
+    xor r14,r14
+    xor r15,r15
+.rfl:call ct
+    cmp rax,TOK_RBRACE
+    je .rfe
+    cmp rax,TOK_EOF
+    je .rfe
+    cmp rax,TOK_IDENT
+    jne .rfe
+    push rbx
+    push rcx
+    call ea
+    mov rdi,TOK_DCOLON
+    call ex
+    call parse_type
+    push rax
+    mov rdi,TOK_SEMICOLON
+    call ex
+    call new_node
+    pop rcx
+    mov qword[rax],NODE_FIELD_DEF
+    mov [rax+8],rcx
+    pop rcx
+    pop rbx
+    mov [rax+48],rbx
+    mov [rax+56],rcx
+    test r14,r14
+    jnz .rfc
+    mov r14,rax
+    mov r15,rax
+    jmp .rfl
+.rfc:mov [r15+32],rax
+    mov r15,rax
+    jmp .rfl
+.rfe:mov rdi,TOK_RBRACE
+    call ex
+    call new_node
+    mov qword[rax],NODE_TYPE_DEF
+    mov [rax+48],r12
+    mov [rax+56],r13
+    mov [rax+16],r14
+    jmp .td_done
+; union: type Name = | Variant(Type) | ...
+.td_union:
+    call ea
+    xor r14,r14
+    xor r15,r15
+.uvl:call ct
+    cmp rax,TOK_BAR
+    jne .uve
+    call ea
+    call ct
+    push rbx
+    push rcx
+    call ea
+    call ct
+    cmp rax,TOK_LPAREN
+    jne .uv_np
+    call ea
+    call parse_type
+    push rax
+    mov rdi,TOK_RPAREN
+    call ex
+    pop rdi
+    jmp .uv_mk
+.uv_np:
+    mov rdi,TYPE_VOID
+.uv_mk:
+    push rdi
+    call new_node
+    pop rdi
+    mov qword[rax],NODE_VARIANT_DEF
+    mov [rax+8],rdi
+    pop rcx
+    pop rbx
+    mov [rax+48],rbx
+    mov [rax+56],rcx
+    test r14,r14
+    jnz .uvc
+    mov r14,rax
+    mov r15,rax
+    jmp .uvl
+.uvc:mov [r15+32],rax
+    mov r15,rax
+    jmp .uvl
+.uve:call new_node
+    mov qword[rax],NODE_UNION_DEF
+    mov [rax+48],r12
+    mov [rax+56],r13
+    mov [rax+16],r14
+.td_done:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    pop rcx
+    pop rbx
+    ret
+.fl:call ct
+    cmp rax,TOK_RBRACE
+    je .fe
+    cmp rax,TOK_EOF
+    je .fe
+    cmp rax,TOK_IDENT
+    jne .fe
+    push rbx
+    push rcx
+    call ea
+    mov rdi,TOK_DCOLON
+    call ex
+    call parse_type
+    push rax
+    mov rdi,TOK_SEMICOLON
+    call ex
+    call new_node
+    pop rcx
+    mov qword[rax],NODE_FIELD_DEF
+    mov [rax+8],rcx
+    pop rcx
+    pop rbx
+    mov [rax+48],rbx
+    mov [rax+56],rcx
+    test r14,r14
+    jnz .fc
+    mov r14,rax
+    mov r15,rax
+    jmp .fl
+.fc:mov [r15+32],rax
+    mov r15,rax
+    jmp .fl
+.fe:mov rdi,TOK_RBRACE
+    call ex
+    call new_node
+    mov qword[rax],NODE_TYPE_DEF
+    mov [rax+48],r12
+    mov [rax+56],r13
+    mov [rax+16],r14
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    pop rcx
+    pop rbx
+    ret
+
+p_func:
+    push rbx
+    push rcx
+    push r12
+    push r13
+    push r14
+    push r15
+    mov rdi,TOK_FN
+    call ex
+    call ct
+    mov r12,rbx
+    mov r13,rcx
+    call ea
+    mov rdi,TOK_LPAREN
+    call ex
+    xor r14,r14
+    xor r15,r15
+.pa:call ct
+    cmp rax,TOK_RPAREN
+    je .pe
+    cmp rax,TOK_COMMA
+    jne .pv
+    call ea
+    jmp .pa
+.pv:cmp rax,TOK_IDENT
+    je .pi
+    cmp rax,TOK_NUMBER
+    je .pn
+    jmp .pe
+.pi:push rbx
+    push rcx
+    call new_node
+    pop rcx
+    pop rbx
+    mov qword[rax],NODE_PARAM
+    mov [rax+48],rbx
+    mov [rax+56],rcx
+    mov qword[rax+8],TYPE_INFER
+    call ea
+    push rax
+    call ct
+    cmp rax,TOK_DCOLON
+    jne .pt2
+    call ea
+    call ct
+    cmp rax,TOK_LBRACKET
+    je .pt_skip
+    call parse_type
+    mov rdi,rax
+    mov rax,[rsp]
+    mov [rax+8],rdi
+    jmp .pt2
+.pt_skip:call ea
+.ptsa:call ct
+    cmp rax,TOK_RBRACKET
+    je .ptsd
+    cmp rax,TOK_EOF
+    je .ptsd
+    call ea
+    jmp .ptsa
+.ptsd:call ea
+.pt2:pop rax
+    jmp .pc
+.pn:push rbx
+    call new_node
+    pop rbx
+    mov qword[rax],NODE_NUMBER
+    mov [rax+8],rbx
+    call ea
+    jmp .pc
+.pc:test r14,r14
+    jnz .pc2
+    mov r14,rax
+    mov r15,rax
+    jmp .pa
+.pc2:mov [r15+32],rax
+    mov r15,rax
+    jmp .pa
+.pe:mov rdi,TOK_RPAREN
+    call ex
+    xor rax,rax
+    push rax
+    mov qword[rsp],TYPE_INFER
+    call ct
+    cmp rax,TOK_ARROW
+    jne .nr
+    call ea
+    call parse_type
+    mov [rsp],rax
+.nr:xor rax,rax
+    push rax
+    call ct
+    cmp rax,TOK_GUARD
+    jne .ng
+    call ea
+    mov rdi,TOK_LBRACKET
+    call ex
+    call p_expr
+    mov [rsp],rax
+.gc:call ct
+    cmp rax,TOK_COMMA
+    jne .ge
+    call ea
+    call p_expr
+    push rax
+    call new_node
+    pop rbx
+    mov qword[rax],NODE_BINOP
+    mov qword[rax+8],TOK_STAR
+    mov rcx,[rsp]
+    mov [rax+16],rcx
+    mov [rax+24],rbx
+    mov [rsp],rax
+    jmp .gc
+.ge:mov rdi,TOK_RBRACKET
+    call ex
+.ng:mov rdi,TOK_LBRACE
+    call ex
+    call new_node
+    mov r15,rax
+    mov qword[r15],NODE_FUNC
+    mov [r15+48],r12
+    mov [r15+56],r13
+    mov [r15+24],r14
+    pop rax
+    mov [r15+8],rax
+    pop rax
+    shl rax,8
+    mov [r15+40],rax
+    call p_slist
+    mov [r15+16],rax
+    mov rdi,TOK_RBRACE
+    call ex
+    mov rax,r15
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    pop rcx
+    pop rbx
+    ret
+
+p_slist:
+    push rbx
+    push r12
+    push r13
+    xor r12,r12
+    xor r13,r13
+.l: call ct
+    cmp rax,TOK_RBRACE
+    je .d
+    cmp rax,TOK_EOF
+    je .d
+    call p_stmt
+    test rax,rax
+    jz .l
+    test r12,r12
+    jnz .ch
+    mov r12,rax
+    mov r13,rax
+    jmp .l
+.ch:mov [r13+32],rax
+    mov r13,rax
+    jmp .l
+.d: mov rax,r12
+    pop r13
+    pop r12
+    pop rbx
+    ret
+
+p_stmt:
+    push rbx
+    push rcx
+    push r12
+    push r13
+    push r14
+    call ct
+    cmp rax,TOK_LET
+    je .let
+    cmp rax,TOK_RETURN
+    je .ret
+    cmp rax,TOK_PRINT
+    je .prn
+    cmp rax,TOK_PRINT_STR
+    je .pstr
+    cmp rax,TOK_IF
+    je .if_
+    cmp rax,TOK_MATCH
+    je .mat
+    cmp rax,TOK_ANCHOR
+    je .anc
+    cmp rax,TOK_SUPERVISE
+    je .sup
+    cmp rax,TOK_UNWIND
+    je .unw
+    cmp rax,TOK_RAW
+    je .raw
+    cmp rax,TOK_STORE
+    je .store
+    cmp rax,TOK_RELEASE
+    je .rel
+    cmp rax,TOK_RELEASE_G
+    je .relg
+    cmp rax,TOK_POOL_DRAIN
+    je .pdrain
+    cmp rax,TOK_IDENT
+    je .maybe_idx
+    call ea
+    xor rax,rax
+    jmp .done
+.maybe_idx:
+    mov r12,rbx
+    mov r13,rcx
+    call ea
+    call ct
+    cmp rax,TOK_LBRACKET
+    je .idx_do
+    cmp rax,TOK_DOT
+    je .field_set
+    jmp .idx_bail
+.idx_do:
+    call ea
+    call p_expr
+    mov r14,rax
+    mov rdi,TOK_RBRACKET
+    call ex
+    mov rdi,TOK_EQUALS
+    call ex
+    call p_expr
+    push rax
+    mov rdi,TOK_SEMICOLON
+    call ex
+    pop rbx
+    call new_node
+    mov qword[rax],NODE_INDEX_SET
+    mov [rax+48],r12
+    mov [rax+56],r13
+    mov [rax+16],r14
+    mov [rax+24],rbx
+    jmp .done
+.field_set:
+    call ea
+    call ct
+    push rcx
+    push rbx
+    call ea
+    mov rdi,TOK_EQUALS
+    call ex
+    call p_expr
+    push rax
+    mov rdi,TOK_SEMICOLON
+    call ex
+    call new_node
+    mov qword[rax],NODE_IDENT
+    mov [rax+48],r12
+    mov [rax+56],r13
+    mov r14,rax
+    call new_node
+    mov qword[rax],NODE_FIELD_SET
+    mov [rax+16],r14
+    pop rbx
+    mov [rax+24],rbx
+    pop rbx
+    mov [rax+48],rbx
+    pop rbx
+    mov [rax+56],rbx
+    jmp .done
+.idx_bail:
+    xor rax,rax
+    jmp .done
+.let:call ea
+    call ct
+    mov r12,rbx
+    mov r13,rcx
+    call ea
+    mov r14,TYPE_INFER
+    call ct
+    cmp rax,TOK_DCOLON
+    jne .ln
+    call ea
+    call ct
+    cmp rax,TOK_LBRACKET
+    je .let_skip_atype
+    call parse_type
+    mov r14,rax
+    jmp .ln
+;.let_skip_atype:call ea
+;.lsa:call ct
+;    cmp rax,TOK_RBRACKET
+;    je .lsad
+;    cmp rax,TOK_EOF
+;    je .lsad
+;    call ea
+;    jmp .lsa
+;.lsad:call ea
+;    mov r14,TYPE_I64
+.let_skip_atype:
+    call ea
+    call parse_type
+    mov r14,rax
+    mov rdi,TOK_RBRACKET
+    call ex
+    jmp .ln
+.ln:mov rdi,TOK_EQUALS
+    call ex
+    call p_expr
+    push rax
+    mov rdi,TOK_SEMICOLON
+    call ex
+    pop rbx
+    call new_node
+    mov qword[rax],NODE_LET
+    mov [rax+8],r14
+    mov [rax+48],r12
+    mov [rax+56],r13
+    mov [rax+16],rbx
+    jmp .done
+.ret:call ea
+    call p_expr
+    push rax
+    mov rdi,TOK_SEMICOLON
+    call ex
+    pop rbx
+    call new_node
+    mov qword[rax],NODE_RETURN
+    mov [rax+16],rbx
+    jmp .done
+.prn:call ea
+    mov rdi,TOK_LPAREN
+    call ex
+    call p_expr
+    push rax
+    mov rdi,TOK_RPAREN
+    call ex
+    mov rdi,TOK_SEMICOLON
+    call ex
+    pop rbx
+    call new_node
+    mov qword[rax],NODE_PRINT
+    mov [rax+16],rbx
+    jmp .done
+.pstr:call ea
+    mov rdi,TOK_LPAREN
+    call ex
+    call p_expr
+    push rax
+    mov rdi,TOK_RPAREN
+    call ex
+    mov rdi,TOK_SEMICOLON
+    call ex
+    pop rbx
+    call new_node
+    mov qword[rax],NODE_PRINT_STR
+    mov [rax+16],rbx
+    jmp .done
+.store:call ea
+    mov rdi,TOK_LPAREN
+    call ex
+    call p_expr
+    mov r12,rax
+    mov rdi,TOK_COMMA
+    call ex
+    call p_expr
+    mov r13,rax
+    mov rdi,TOK_COMMA
+    call ex
+    call p_expr
+    mov r14,rax
+    mov rdi,TOK_RPAREN
+    call ex
+    mov rdi,TOK_SEMICOLON
+    call ex
+    call new_node
+    mov qword[rax],NODE_STORE
+    mov [rax+16],r12
+    mov [rax+24],r13
+    mov [rax+8],r14
+    jmp .done
+.rel:call ea
+    mov rdi,TOK_LPAREN
+    call ex
+    call p_expr
+    push rax
+    mov rdi,TOK_RPAREN
+    call ex
+    mov rdi,TOK_SEMICOLON
+    call ex
+    pop rbx
+    call new_node
+    mov qword[rax],NODE_RELEASE
+    mov [rax+16],rbx
+    jmp .done
+.relg:call ea
+    mov rdi,TOK_LPAREN
+    call ex
+    call p_expr
+    push rax
+    mov rdi,TOK_RPAREN
+    call ex
+    mov rdi,TOK_SEMICOLON
+    call ex
+    pop rbx
+    call new_node
+    mov qword[rax],NODE_RELEASE_G
+    mov [rax+16],rbx
+    jmp .done
+.pdrain:call ea
+    mov rdi,TOK_LPAREN
+    call ex
+    call p_expr
+    push rax
+    mov rdi,TOK_RPAREN
+    call ex
+    mov rdi,TOK_SEMICOLON
+    call ex
+    pop rbx
+    call new_node
+    mov qword[rax],NODE_POOL_DRAIN
+    mov [rax+16],rbx
+    jmp .done
+.if_:call ea
+    call p_expr
+    mov r12,rax
+    mov rdi,TOK_LBRACE
+    call ex
+    call p_slist
+    mov r13,rax
+    mov rdi,TOK_RBRACE
+    call ex
+    xor r14,r14
+    call ct
+    cmp rax,TOK_ELSE
+    jne .ifm
+    call ea
+    mov rdi,TOK_LBRACE
+    call ex
+    call p_slist
+    mov r14,rax
+    mov rdi,TOK_RBRACE
+    call ex
+.ifm:call new_node
+    mov qword[rax],NODE_IF
+    mov [rax+16],r12
+    mov [rax+24],r13
+    mov [rax+8],r14
+    jmp .done
+.mat:call ea
+    call p_expr
+    mov r12,rax
+    mov rdi,TOK_LBRACE
+    call ex
+    xor r13,r13
+    xor r14,r14
+.ml:call ct
+    cmp rax,TOK_RBRACE
+    je .me
+    cmp rax,TOK_EOF
+    je .me
+    call p_arm
+    test rax,rax
+    jz .ml
+    test r13,r13
+    jnz .mc
+    mov r13,rax
+    mov r14,rax
+    jmp .ml
+.mc:mov [r14+32],rax
+    mov r14,rax
+    jmp .ml
+.me:mov rdi,TOK_RBRACE
+    call ex
+    call new_node
+    mov qword[rax],NODE_MATCH
+    mov [rax+16],r12
+    mov [rax+24],r13
+    jmp .done
+.anc:call ea
+    call ct
+    mov r12,rbx
+    mov r13,rcx
+    call ea
+    mov rdi,TOK_LBRACE
+    call ex
+    call p_slist
+    mov r14,rax
+    mov rdi,TOK_RBRACE
+    call ex
+    call new_node
+    mov qword[rax],NODE_ANCHOR
+    mov [rax+48],r12
+    mov [rax+56],r13
+    mov [rax+16],r14
+    jmp .done
+.sup:call ea
+    mov rdi,TOK_LBRACE
+    call ex
+    call p_slist
+    mov r12,rax
+    mov rdi,TOK_RBRACE
+    call ex
+    call new_node
+    mov qword[rax],NODE_SUPERVISE
+    mov [rax+16],r12
+    jmp .done
+.unw:call ea
+    call ct
+    mov r12,rbx
+    mov r13,rcx
+    call ea
+    mov rdi,TOK_SEMICOLON
+    call ex
+    call new_node
+    mov qword[rax],NODE_UNWIND
+    mov [rax+48],r12
+    mov [rax+56],r13
+    jmp .done
+.raw:call ea
+    mov rdi,TOK_LBRACE
+    call ex
+    call p_slist
+    mov r12,rax
+    mov rdi,TOK_RBRACE
+    call ex
+    call new_node
+    mov qword[rax],NODE_RAW
+    mov [rax+16],r12
+.done:pop r14
+    pop r13
+    pop r12
+    pop rcx
+    pop rbx
+    ret
+
+p_arm:
+    push rbx
+    push rcx
+    push r12
+    push r13
+    push r14
+    call ct
+    cmp rax,TOK_UNDERSCORE
+    je .wild
+    cmp rax,TOK_NUMBER
+    je .num
+cmp rax,TOK_IDENT
+    jne .skip
+    cmp rcx,1
+    jne .chk_var
+    cmp byte[rbx],'_'
+    je .wild
+.chk_var:
+    call pk
+    cmp rax,TOK_LPAREN
+    je .variant
+    jmp .bind
+.wild:call ea
+    mov rdi,TOK_FATARROW
+    call ex
+    call p_stmt
+    mov r12,rax
+    call new_node
+    mov qword[rax],NODE_MATCH_ARM
+    mov qword[rax+40],1
+    mov [rax+16],r12
+    jmp .done
+.variant:
+    mov r13,rbx
+    mov r14,rcx
+    call ea
+    call ea
+    xor r12,r12
+    call ct
+    cmp rax,TOK_RPAREN
+    je .var_close
+    cmp rax,TOK_IDENT
+    jne .var_close
+    push rbx
+    push rcx
+    call new_node
+    pop rcx
+    pop rbx
+    mov qword[rax],NODE_PARAM
+    mov [rax+48],rbx
+    mov [rax+56],rcx
+    mov r12,rax
+    call ea
+.var_close:
+    mov rdi,TOK_RPAREN
+    call ex
+    mov rdi,TOK_FATARROW
+    call ex
+    call p_stmt
+    push rax
+    push r12
+    call new_node
+    pop r12
+    pop rbx
+    mov qword[rax],NODE_MATCH_ARM
+    mov qword[rax+40],3
+    mov [rax+48],r13
+    mov [rax+56],r14
+    mov [rax+16],rbx
+    mov [rax+24],r12
+    jmp .done
+.bind:mov r13,rbx
+    mov r14,rcx
+    call ea
+    xor r12,r12
+    call ct
+    cmp rax,TOK_GUARD
+    jne .bng
+    call ea
+    mov rdi,TOK_LBRACKET
+    call ex
+    call p_expr
+    mov r12,rax
+.bgc:call ct
+    cmp rax,TOK_COMMA
+    jne .bge
+    call ea
+    call p_expr
+    push rax
+    call new_node
+    pop rbx
+    mov qword[rax],NODE_BINOP
+    mov qword[rax+8],TOK_STAR
+    mov [rax+16],r12
+    mov [rax+24],rbx
+    mov r12,rax
+    jmp .bgc
+.bge:mov rdi,TOK_RBRACKET
+    call ex
+.bng:mov rdi,TOK_FATARROW
+    call ex
+    call p_stmt
+    push rax
+    call new_node
+    pop rbx
+    mov qword[rax],NODE_MATCH_ARM
+    mov qword[rax+40],2
+    mov [rax+48],r13
+    mov [rax+56],r14
+    mov [rax+24],r12
+    mov [rax+16],rbx
+    jmp .done
+.num:mov r13,rbx
+    call ea
+    mov rdi,TOK_FATARROW
+    call ex
+    call p_stmt
+    mov r12,rax
+    call new_node
+    mov qword[rax],NODE_MATCH_ARM
+    mov qword[rax+40],0
+    mov [rax+8],r13
+    mov [rax+16],r12
+    jmp .done
+.skip:call ea
+    xor rax,rax
+.done:pop r14
+    pop r13
+    pop r12
+    pop rcx
+    pop rbx
+    ret
+
+p_expr: jmp p_pipe
+p_pipe:
+    push rbx
+    push rcx
+    push r12
+    push r13
+    push r14
+    call p_cmp
+    mov r12,rax
+.l: call ct
+    cmp rax,TOK_PIPE
+    jne .d
+    call ea
+    call p_primary
+    cmp qword[rax],NODE_CALL
+    je .pc
+    cmp qword[rax],NODE_IDENT
+    je .pid
+    mov r12,rax
+    jmp .l
+.pc:mov r13,[rax+16]
+    mov qword[r12+32],0
+    mov [r12+32],r13
+    mov [rax+16],r12
+    mov r12,rax
+    jmp .l
+.pid:mov r13,[rax+48]
+    mov r14,[rax+56]
+    call new_node
+    mov qword[rax],NODE_CALL
+    mov [rax+48],r13
+    mov [rax+56],r14
+    mov qword[r12+32],0
+    mov [rax+16],r12
+    mov r12,rax
+    jmp .l
+.d: mov rax,r12
+    pop r14
+    pop r13
+    pop r12
+    pop rcx
+    pop rbx
+    ret
+p_cmp:
+    push rbx
+    push rcx
+    push r12
+    push r13
+    call p_add
+    mov r12,rax
+    call ct
+    cmp rax,TOK_EQ
+    je .op
+    cmp rax,TOK_NEQ
+    je .op
+    cmp rax,TOK_LT
+    je .op
+    cmp rax,TOK_GT
+    je .op
+    cmp rax,TOK_LE
+    je .op
+    cmp rax,TOK_GE
+    je .op
+    mov rax,r12
+    jmp .d
+.op:mov r13,rax
+    call ea
+    call p_add
+    push rax
+    call new_node
+    mov qword[rax],NODE_BINOP
+    mov [rax+8],r13
+    mov [rax+16],r12
+    pop rbx
+    mov [rax+24],rbx
+.d: pop r13
+    pop r12
+    pop rcx
+    pop rbx
+    ret
+p_add:
+    push rbx
+    push rcx
+    push r12
+    call p_term
+    mov r12,rax
+.l: call ct
+    cmp rax,TOK_PLUS
+    je .op
+    cmp rax,TOK_MINUS
+    je .op
+    mov rax,r12
+    pop r12
+    pop rcx
+    pop rbx
+    ret
+.op:push rax
+    call ea
+    call p_primary
+    call p_postfix
+    mov rbx,rax
+    pop rcx
+    push rbx
+    call new_node
+    mov qword[rax],NODE_BINOP
+    mov [rax+8],rcx
+    mov [rax+16],r12
+    pop rbx
+    mov [rax+24],rbx
+    mov r12,rax
+    jmp .l
+p_term:
+    push rbx
+    push rcx
+    push r12
+    call p_primary
+    call p_postfix
+    mov r12,rax
+.l: call ct
+    cmp rax,TOK_STAR
+    je .op
+    cmp rax,TOK_SLASH
+    je .op
+    mov rax,r12
+    pop r12
+    pop rcx
+    pop rbx
+    ret
+.op:push rax
+    call ea
+    call p_primary
+    mov rbx,rax
+    pop rcx
+    push rbx
+    call new_node
+    mov qword[rax],NODE_BINOP
+    mov [rax+8],rcx
+    mov [rax+16],r12
+    pop rbx
+    mov [rax+24],rbx
+    mov r12,rax
+    jmp .l
+p_postfix:
+    push rbx
+    push rcx
+    push r12
+    mov r12,rax
+.lp:call ct
+    cmp rax,TOK_DOT
+    jne .dn
+    call ea
+    call ct
+    push rbx
+    push rcx
+    call ea
+    call new_node
+    pop rcx
+    pop rbx
+    mov qword[rax],NODE_FIELD_ACCESS
+    mov [rax+16],r12
+    mov [rax+48],rbx
+    mov [rax+56],rcx
+    mov r12,rax
+    jmp .lp
+.dn:mov rax,r12
+    pop r12
+    pop rcx
+    pop rbx
+    ret
+
+p_primary:
+    push rbx
+    push rcx
+    push r12
+    push r13
+    push r14
+    push r15
+    call ct
+    cmp rax,TOK_NUMBER
+    je .num
+    cmp rax,TOK_IDENT
+    je .id
+    cmp rax,TOK_LPAREN
+    je .par
+    cmp rax,TOK_AMP
+    je .brw
+    cmp rax,TOK_ATOM
+    je .atom
+    cmp rax,TOK_TRUE
+    je .btrue
+    cmp rax,TOK_FALSE
+    je .bfalse
+    cmp rax,TOK_ADDR
+    je .addr
+    cmp rax,TOK_AT
+    je .deref
+    cmp rax,TOK_STRING
+    je .string
+    cmp rax,TOK_LEN
+    je .lenexpr
+    cmp rax,TOK_LOAD
+    je .loadexpr
+    cmp rax,TOK_CLAIM
+    je .claimexpr
+    cmp rax,TOK_CLAIM_G
+    je .claimgexpr
+    cmp rax,TOK_POOL_NEW
+    je .pnewexpr
+    cmp rax,TOK_POOL_CLAIM
+    je .pclaimexpr
+    cmp rax,TOK_ARRLEN
+    je .arrlenexpr
+    cmp rax,TOK_LBRACKET
+    je .arr_lit
+    xor rax,rax
+    jmp .d
+.num:mov r12,rbx
+    call ea
+    call new_node
+    mov qword[rax],NODE_NUMBER
+    mov [rax+8],r12
+    jmp .d
+.btrue:call ea
+    call new_node
+    mov qword[rax],NODE_BOOL
+    mov qword[rax+8],1
+    jmp .d
+.bfalse:call ea
+    call new_node
+    mov qword[rax],NODE_BOOL
+    mov qword[rax+8],0
+    jmp .d
+.string:mov r12,rbx
+    mov r13,rcx
+    call ea
+    call new_node
+    mov qword[rax],NODE_STRING
+    mov [rax+48],r12
+    mov [rax+56],r13
+    jmp .d
+.addr:call ea
+    mov rdi,TOK_LPAREN
+    call ex
+    call ct
+    mov r12,rbx
+    mov r13,rcx
+    call ea
+    mov rdi,TOK_RPAREN
+    call ex
+    call new_node
+    mov qword[rax],NODE_ADDR
+    mov [rax+48],r12
+    mov [rax+56],r13
+    jmp .d
+.deref:call ea
+    call p_primary
+    mov r12,rax
+    call new_node
+    mov qword[rax],NODE_DEREF
+    mov [rax+16],r12
+    jmp .d
+.lenexpr:call ea
+    mov rdi,TOK_LPAREN
+    call ex
+    call p_expr
+    mov r12,rax
+    mov rdi,TOK_RPAREN
+    call ex
+    call new_node
+    mov qword[rax],NODE_LEN
+    mov [rax+16],r12
+    jmp .d
+.loadexpr:call ea
+    mov rdi,TOK_LPAREN
+    call ex
+    call p_expr
+    mov r12,rax
+    mov rdi,TOK_COMMA
+    call ex
+    call p_expr
+    mov r13,rax
+    mov rdi,TOK_RPAREN
+    call ex
+    call new_node
+    mov qword[rax],NODE_LOAD
+    mov [rax+16],r12
+    mov [rax+24],r13
+    jmp .d
+.claimexpr:call ea
+    mov rdi,TOK_LPAREN
+    call ex
+    call p_expr
+    mov r12,rax
+    mov rdi,TOK_RPAREN
+    call ex
+    call new_node
+    mov qword[rax],NODE_CLAIM
+    mov [rax+16],r12
+    jmp .d
+.claimgexpr:call ea
+    mov rdi,TOK_LPAREN
+    call ex
+    call p_expr
+    mov r12,rax
+    mov rdi,TOK_RPAREN
+    call ex
+    call new_node
+    mov qword[rax],NODE_CLAIM_G
+    mov [rax+16],r12
+    jmp .d
+.pnewexpr:call ea
+    mov rdi,TOK_LPAREN
+    call ex
+    call p_expr
+    mov r12,rax
+    mov rdi,TOK_RPAREN
+    call ex
+    call new_node
+    mov qword[rax],NODE_POOL_NEW
+    mov [rax+16],r12
+    jmp .d
+.pclaimexpr:call ea
+    mov rdi,TOK_LPAREN
+    call ex
+    call p_expr
+    mov r12,rax
+    mov rdi,TOK_COMMA
+    call ex
+    call p_expr
+    mov r13,rax
+    mov rdi,TOK_RPAREN
+    call ex
+    call new_node
+    mov qword[rax],NODE_POOL_CLAIM
+    mov [rax+16],r12
+    mov [rax+24],r13
+    jmp .d
+.arrlenexpr:call ea
+    mov rdi,TOK_LPAREN
+    call ex
+    call p_expr
+    mov r12,rax
+    mov rdi,TOK_RPAREN
+    call ex
+    call new_node
+    mov qword[rax],NODE_ARRLEN
+    mov [rax+16],r12
+    jmp .d
+.arr_lit:call ea
+    xor r14,r14
+    xor r15,r15
+    xor r13,r13
+.al_el:call ct
+    cmp rax,TOK_RBRACKET
+    je .al_end
+    call p_expr
+    test r14,r14
+    jnz .al_ch
+    mov r14,rax
+    mov r15,rax
+    inc r13
+    jmp .al_nx
+.al_ch:mov [r15+32],rax
+    mov r15,rax
+    inc r13
+.al_nx:call ct
+    cmp rax,TOK_COMMA
+    jne .al_end
+    call ea
+    jmp .al_el
+.al_end:mov rdi,TOK_RBRACKET
+    call ex
+    push r13
+    call new_node
+    pop r13
+    mov qword[rax],NODE_ARRAY
+    mov [rax+8],r13
+    mov [rax+16],r14
+    jmp .d
+.id:mov r12,rbx
+    mov r13,rcx
+    call ea
+    call ct
+    cmp rax,TOK_LPAREN
+    je .call
+    cmp rax,TOK_LBRACKET
+    je .idx
+    cmp rax,TOK_LBRACE
+    jne .no_rl
+    movzx eax,byte[r12]
+    cmp al,'A'
+    jb .no_rl
+    cmp al,'Z'
+    ja .no_rl
+    jmp .rec_lit
+.no_rl:
+    call new_node
+    mov qword[rax],NODE_IDENT
+    mov [rax+48],r12
+    mov [rax+56],r13
+    jmp .d
+.idx:call ea
+    call p_expr
+    mov r14,rax
+    mov rdi,TOK_RBRACKET
+    call ex
+    call new_node
+    mov qword[rax],NODE_INDEX
+    mov [rax+48],r12
+    mov [rax+56],r13
+    mov [rax+16],r14
+    jmp .d
+.rec_lit:
+    call ea
+    xor r14,r14
+    xor r15,r15
+.rl_lp:call ct
+    cmp rax,TOK_RBRACE
+    je .rl_end
+    cmp rax,TOK_EOF
+    je .rl_end
+    push rbx
+    push rcx
+    call ea
+    mov rdi,TOK_EQUALS
+    call ex
+    call p_expr
+    push rax
+    call new_node
+    mov qword[rax],NODE_FIELD_DEF
+    pop rbx
+    mov [rax+16],rbx
+    pop rbx
+    mov [rax+56],rbx
+    pop rbx
+    mov [rax+48],rbx
+    test r14,r14
+    jnz .rl_ch
+    mov r14,rax
+    mov r15,rax
+    jmp .rl_nx
+.rl_ch:mov [r15+32],rax
+    mov r15,rax
+.rl_nx:call ct
+    cmp rax,TOK_COMMA
+    jne .rl_lp
+    call ea
+    jmp .rl_lp
+.rl_end:
+    mov rdi,TOK_RBRACE
+    call ex
+    push r14
+    call new_node
+    pop r14
+    mov qword[rax],NODE_RECORD_LIT
+    mov [rax+48],r12
+    mov [rax+56],r13
+    mov [rax+16],r14
+    jmp .d
+.call:call ea
+    xor r14,r14
+    xor r15,r15
+.ca:call ct
+    cmp rax,TOK_RPAREN
+    je .ce
+    call p_expr
+    test r14,r14
+    jnz .cc
+    mov r14,rax
+    mov r15,rax
+    jmp .cn
+.cc:mov [r15+32],rax
+    mov r15,rax
+.cn:call ct
+    cmp rax,TOK_COMMA
+    jne .ce
+    call ea
+    jmp .ca
+.ce:mov rdi,TOK_RPAREN
+    call ex
+    call new_node
+    mov qword[rax],NODE_CALL
+    mov [rax+48],r12
+    mov [rax+56],r13
+    mov [rax+16],r14
+    jmp .d
+.par:call ea
+    call p_expr
+    push rax
+    mov rdi,TOK_RPAREN
+    call ex
+    pop rax
+    jmp .d
+.brw:call ea
+    xor r12,r12
+    call ct
+    cmp rax,TOK_MUT
+    jne .bnm
+    mov r12,1
+    call ea
+.bnm:call ct
+    mov r13,rbx
+    mov r14,rcx
+    call ea
+    call new_node
+    mov qword[rax],NODE_BORROW
+    mov [rax+8],r12
+    mov [rax+48],r13
+    mov [rax+56],r14
+    jmp .d
+.atom:mov r12,rbx
+    mov r13,rcx
+    call ea
+    call new_node
+    mov qword[rax],NODE_ATOM
+    mov [rax+48],r12
+    mov [rax+56],r13
+.d: pop r15
+    pop r14
+    pop r13
+    pop r12
+    pop rcx
+    pop rbx
+    ret
