@@ -1,0 +1,15 @@
+module Main {
+  public fn main() -> i64 {
+    anchor safe {
+      let mem = claim(64);
+      store(mem, 0, 42);
+      unwind safe;
+    }
+    supervise {
+      let z = 10 / 0;
+      print(z);
+    }
+    print(99);
+    return 0;
+  }
+}

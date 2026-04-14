@@ -2,19 +2,52 @@ default rel
 %include "defs.inc"
 extern lex_tokens,lex_token_count,new_node,platform_write
 extern resolve_type_token
-global parser_init,parser_run
+global parser_init,parser_run,parse_errors,parser_get_errors
 
 section .data
-err_pre:db "  [error] line ",0
+; ANSI-colored error prefix: "  [error]" in bold red
+err_pre:db "  ",27,"[1;31m","[error]",27,"[0m"," line ",0
 err_sep:db ": ",0
 err_syn:db "unexpected token",10,0
 err_expect:db "expected token not found",10,0
 err_nl:db 10,0
+; structured error message parts
+err_expect_pre:db "expected ",0
+err_found:db ", found ",0
+err_unexpected_tok:db "unexpected ",0
+err_bare_ident_pre:db "unexpected identifier '",0
+err_bare_ident_suf:db "' (missing ';', '=' , '(' or '['?)",10,0
+err_kw_as_ident:db "expected identifier, found keyword (reserved words cannot be used as names)",10,0
+; token description strings for error messages
+td_eof:  db "end of file",0
+td_ident:db "identifier",0
+td_num:  db "number",0
+td_str:  db "string literal",0
+td_semi: db "';'",0
+td_comma:db "','",0
+td_lbrace:db "'{'",0
+td_rbrace:db "'}'",0
+td_lparen:db "'('",0
+td_rparen:db "')'",0
+td_lbk:  db "'['",0
+td_rbk:  db "']'",0
+td_eq:   db "'='",0
+td_arrow:db "'->'",0
+td_fat:  db "'=>'",0
+td_dc:   db "'::'",0
+td_dot:  db "'.'",0
+td_plus: db "'+'",0
+td_minus:db "'-'",0
+td_star: db "'*'",0
+td_slash:db "'/'",0
+td_kw:   db "keyword",0
+td_unk:  db "token",0
 
 section .bss
 pp: resq 1
 cur_line: resq 1
 pnum_buf: resb 32
+parse_errors: resq 1
 
 section .text
 
@@ -72,8 +105,120 @@ pnum:push rbx
     pop rbx
     ret
 
+; perr_prefix: print "[error] line N: " prefix and increment error counter
+perr_prefix:
+    inc qword[parse_errors]
+    push rdi
+    mov rdi,err_pre
+    call pstr
+    mov rax,[cur_line]
+    call pnum
+    mov rdi,err_sep
+    call pstr
+    pop rdi
+    ret
+
+; parser_get_errors: -> rax = number of parse errors
+parser_get_errors:
+    mov rax,[parse_errors]
+    ret
+
+; tok_desc: rax=token_type -> rdi=human-readable description string
+tok_desc:
+    cmp rax,TOK_EOF
+    je .eof
+    cmp rax,TOK_IDENT
+    je .id
+    cmp rax,TOK_NUMBER
+    je .num
+    cmp rax,TOK_STRING
+    je .str
+    cmp rax,TOK_SEMICOLON
+    je .semi
+    cmp rax,TOK_COMMA
+    je .comma
+    cmp rax,TOK_LBRACE
+    je .lb
+    cmp rax,TOK_RBRACE
+    je .rb
+    cmp rax,TOK_LPAREN
+    je .lp
+    cmp rax,TOK_RPAREN
+    je .rp
+    cmp rax,TOK_LBRACKET
+    je .lbk
+    cmp rax,TOK_RBRACKET
+    je .rbk
+    cmp rax,TOK_EQUALS
+    je .eq_
+    cmp rax,TOK_ARROW
+    je .arr
+    cmp rax,TOK_FATARROW
+    je .fat
+    cmp rax,TOK_DCOLON
+    je .dc
+    cmp rax,TOK_DOT
+    je .dot
+    cmp rax,TOK_PLUS
+    je .plus
+    cmp rax,TOK_MINUS
+    je .minus
+    cmp rax,TOK_STAR
+    je .star
+    cmp rax,TOK_SLASH
+    je .slsh
+    ; anything >= 10 is likely a keyword token
+    cmp rax,10
+    jge .kw
+    lea rdi,[td_unk]
+    ret
+.eof: lea rdi,[td_eof]
+    ret
+.id: lea rdi,[td_ident]
+    ret
+.num: lea rdi,[td_num]
+    ret
+.str: lea rdi,[td_str]
+    ret
+.semi: lea rdi,[td_semi]
+    ret
+.comma: lea rdi,[td_comma]
+    ret
+.lb: lea rdi,[td_lbrace]
+    ret
+.rb: lea rdi,[td_rbrace]
+    ret
+.lp: lea rdi,[td_lparen]
+    ret
+.rp: lea rdi,[td_rparen]
+    ret
+.lbk: lea rdi,[td_lbk]
+    ret
+.rbk: lea rdi,[td_rbk]
+    ret
+.eq_: lea rdi,[td_eq]
+    ret
+.arr: lea rdi,[td_arrow]
+    ret
+.fat: lea rdi,[td_fat]
+    ret
+.dc: lea rdi,[td_dc]
+    ret
+.dot: lea rdi,[td_dot]
+    ret
+.plus: lea rdi,[td_plus]
+    ret
+.minus: lea rdi,[td_minus]
+    ret
+.star: lea rdi,[td_star]
+    ret
+.slsh: lea rdi,[td_slash]
+    ret
+.kw: lea rdi,[td_kw]
+    ret
+
 ; print error with line number: "  [error] line N: <msg>"
-; rdi = error message
+; rdi = error message (kept for legacy callers)
 perr:push rdi
     mov rdi,err_pre
     call pstr
@@ -106,15 +251,30 @@ ct: push rdx ; @ely:lint suppress L001
 ea: inc qword[pp]
     ret
 
-; expect: consume token of type rdi, or print error with line
+; expect: consume token of type rdi, or print detailed error
+; shows expected vs found token types
 ex: call ct
     cmp rax,rdi
     jne .f
     call ea
     ret
-.f: push rdi
-    mov rdi,err_expect
-    call perr
+.f: ; error: expected rdi, found rax
+    push rdi                   ; [rsp+8] = expected type
+    push rax                   ; [rsp]   = found type
+    call perr_prefix           ; prints "[error] line N: " and increments counter
+    mov rdi,err_expect_pre     ; "expected "
+    call pstr
+    mov rax,[rsp+8]            ; expected token type
+    call tok_desc              ; -> rdi = description
+    call pstr
+    mov rdi,err_found          ; ", found "
+    call pstr
+    mov rax,[rsp]              ; found token type
+    call tok_desc              ; -> rdi = description
+    call pstr
+    mov rdi,err_nl
+    call pstr
+    pop rax
     pop rdi
     ret
 ; peek next token type -> rax (does not advance, preserves rbx/rcx)
@@ -147,6 +307,7 @@ parse_type:
 parser_init:
     mov qword[pp],0
     mov qword[cur_line],1
+    mov qword[parse_errors],0
     ret
 
 parser_run:
@@ -559,6 +720,8 @@ p_func:
     pop rbx
     ret
 
+; p_slist: parse statement list until '}' or EOF
+; tracks parser position to prevent infinite loops on error recovery
 p_slist:
     push rbx
     push r12
@@ -570,9 +733,10 @@ p_slist:
     je .d
     cmp rax,TOK_EOF
     je .d
+    mov rbx,[pp]               ; remember position before p_stmt
     call p_stmt
     test rax,rax
-    jz .l
+    jz .chk_adv
     test r12,r12
     jnz .ch
     mov r12,rax
@@ -580,6 +744,13 @@ p_slist:
     jmp .l
 .ch:mov [r13+32],rax
     mov r13,rax
+    jmp .l
+.chk_adv:
+    ; p_stmt returned null - if position didn't advance, force-skip to prevent loop
+    mov rax,[pp]
+    cmp rax,rbx
+    jne .l
+    call ea
     jmp .l
 .d: mov rax,r12
     pop r13
@@ -633,7 +804,17 @@ p_stmt:
     je .cont_
     cmp rax,TOK_IDENT
     je .maybe_idx
-    call ea
+    ; unknown/unexpected token in statement position - report error
+    push rax
+    call perr_prefix           ; "[error] line N: "
+    mov rdi,err_unexpected_tok ; "unexpected "
+    call pstr
+    pop rax
+    call tok_desc              ; rdi = description of the token
+    call pstr
+    mov rdi,err_nl
+    call pstr
+    call ea                    ; advance past the bad token
     xor rax,rax
     jmp .done
 ; while expr { stmts }
@@ -809,12 +990,34 @@ p_stmt:
     mov [rax+16],rbx
     jmp .done
 .idx_skip:
+    ; bare identifier not followed by '=', '(', '[', or '.' - report error
+    call perr_prefix           ; "[error] line N: "
+    mov rdi,err_bare_ident_pre ; "unexpected identifier '"
+    call pstr
+    mov rsi,r12                ; identifier source pointer (set in .maybe_idx)
+    mov rdx,r13                ; identifier length (set in .maybe_idx)
+    test rsi,rsi
+    jz .idx_skip_no_name
+    call platform_write        ; print the identifier name
+.idx_skip_no_name:
+    mov rdi,err_bare_ident_suf ; "' (missing ...)"
+    call pstr
     xor rax,rax
     jmp .done
 .let:call ea
     call ct
     mov r12,rbx
     mov r13,rcx
+    ; check that we got an identifier, not a keyword
+    cmp rax,TOK_IDENT
+    je .let_name_ok
+    ; keyword or other token where identifier expected
+    push rax
+    call perr_prefix
+    mov rdi,err_kw_as_ident
+    call pstr
+    pop rax
+.let_name_ok:
     call ea
     mov r14,TYPE_INFER
     call ct

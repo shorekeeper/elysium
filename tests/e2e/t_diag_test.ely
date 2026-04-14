@@ -1,0 +1,12 @@
+module Main {
+  fn no_return(x) -> i64 {
+    print(x);
+  }
+
+  public fn main() -> i64 {
+    let unused_val = 42;
+    let _ok = 10;
+    print(0);
+    return 0;
+  }
+}
