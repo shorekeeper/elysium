@@ -552,7 +552,8 @@ ck_stmt:
     mov rdi, [r12+48]
     mov rsi, [r12+56]
     call diag_err_undef_var
-
+    jmp .done
+    
 .ck_call_stmt:
     mov rdi, r12
     call ck_expr

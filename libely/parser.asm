@@ -593,6 +593,7 @@ p_stmt:
     push r12
     push r13
     push r14
+    push r15
     call ct
     cmp rax,TOK_LET
     je .let
@@ -1065,7 +1066,9 @@ p_stmt:
     call new_node
     mov qword[rax],NODE_RAW
     mov [rax+16],r12
-.done:pop r14
+.done:
+    pop r15
+    pop r14
     pop r13
     pop r12
     pop rcx
