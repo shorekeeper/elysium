@@ -10,6 +10,7 @@ extern ely_memcmp
 extern treg_init, treg_define, treg_define_union, treg_lookup_variant
 extern diag_err_undef_var, diag_err_undef_fn, diag_err_wrong_argc
 extern diag_get_errors
+extern diag_err_type_range
 global checker_run
 
 CK_MAX_FN equ 4096
@@ -350,6 +351,33 @@ ck_stmt:
     test rdi, rdi
     jz .let_add
     call ck_expr
+    ; E004: check type range for typed literal assignments
+    mov rax, [r12+8]         ; type annotation
+    cmp rax, TYPE_INFER
+    je .let_add
+    cmp rax, TYPE_I64
+    je .let_add
+    cmp rax, TYPE_U64
+    je .let_add
+    mov rdi, [r12+16]        ; RHS expression node
+    cmp qword[rdi], NODE_NUMBER
+    jne .let_add
+    ; typed let with literal value - check range
+    mov rsi, [rdi+8]         ; literal value
+    mov rdi, rax             ; type id
+    push rdi
+    push rsi
+    call ck_type_range        ; rdi=type, rsi=val -> rax=0/1
+    test rax, rax
+    pop rsi                   ; value (pop doesn't affect flags)
+    pop rdi                   ; type
+    jz .let_add
+    ; out of range: emit E004
+    mov rcx, rdi             ; type for diag
+    mov rdx, rsi             ; value for diag
+    mov rdi, [r12+48]        ; name ptr (source position)
+    mov rsi, [r12+56]        ; name len
+    call diag_err_type_range
 .let_add:
     mov rsi, [r12+48]
     mov rcx, [r12+56]
@@ -553,7 +581,7 @@ ck_stmt:
     mov rsi, [r12+56]
     call diag_err_undef_var
     jmp .done
-    
+
 .ck_call_stmt:
     mov rdi, r12
     call ck_expr
@@ -785,4 +813,48 @@ ck_expr:
     pop r13
     pop r12
     pop rbx
+    ret
+; ck_type_range: check if literal value fits in declared type
+; rdi=TYPE_*, rsi=value (unsigned from parser) -> rax=0 fits, 1 out of range
+ck_type_range:
+    cmp rdi, TYPE_I8
+    je .i8
+    cmp rdi, TYPE_U8
+    je .u8
+    cmp rdi, TYPE_I16
+    je .i16
+    cmp rdi, TYPE_U16
+    je .u16
+    cmp rdi, TYPE_I32
+    je .i32
+    cmp rdi, TYPE_U32
+    je .u32
+    xor rax, rax
+    ret
+.i8:  cmp rsi, 127
+    ja .bad
+    xor rax, rax
+    ret
+.u8:  cmp rsi, 255
+    ja .bad
+    xor rax, rax
+    ret
+.i16: cmp rsi, 32767
+    ja .bad
+    xor rax, rax
+    ret
+.u16: cmp rsi, 65535
+    ja .bad
+    xor rax, rax
+    ret
+.i32: cmp rsi, 2147483647
+    ja .bad
+    xor rax, rax
+    ret
+.u32: mov rax, 4294967295
+    cmp rsi, rax
+    ja .bad
+    xor rax, rax
+    ret
+.bad: mov rax, 1
     ret

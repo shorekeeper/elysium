@@ -1,33 +1,42 @@
-; diagnostic.asm -- structured ASCII-art error formatter
-; Renders source context with line numbers, underlines, and hints.
-; Format:
-;   ERR[E001] undefined variable
-;
-;       demo.ely
-;    7  : print(ghost_var);
-;       :       ~~~~~~~~~  not in scope
-;       :
-;
+; diagnostic.asm -- structured error formatter with ANSI color
+; E001: undefined variable
+; E002: wrong argument count
+; E003: undefined function
+; E004: type mismatch / value out of range
 default rel
 %include "defs.inc"
 extern platform_write
 
 global diag_init, diag_get_errors, diag_summary
 global diag_err_undef_var, diag_err_undef_fn, diag_err_wrong_argc
+global diag_err_type_range
 
-ANNOT_COL equ 48
+ANNOT_COL equ 52
 
 section .data
 d_spaces: times 80 db ' '
 d_tildes: times 80 db '~'
 
-; error headers
+; ANSI color sequences (27 = ESC)
+c_rs:   db 27,"[0m",0
+c_red:  db 27,"[31m",0
+c_cyan: db 27,"[36m",0
+c_white:db 27,"[37m",0
+c_gray: db 27,"[90m",0
+c_bred: db 27,"[1;31m",0
+c_byel: db 27,"[1;33m",0
+c_bcyan:db 27,"[1;36m",0
+c_bwht: db 27,"[1;37m",0
+
+; error tags
 de001h: db "ERR[E001]",0
 de001t: db " undefined variable",0
 de002h: db "ERR[E002]",0
 de002t: db " wrong argument count",0
 de003h: db "ERR[E003]",0
 de003t: db " undefined function",0
+de004h: db "ERR[E004]",0
+de004t: db " type mismatch",0
 
 ; annotations
 da_noscope: db "not in scope",0
@@ -38,15 +47,27 @@ da_call:    db "* called: ",0
 da_args:    db " args",0
 da_expect:  db "expected ",0
 da_got:     db " arguments, got ",0
+da_oor:     db " out of range for ",0
+da_range:   db " range: ",0
+da_dotdot:  db "..",0
+da_usewider:db "use wider type or cast explicitly",0
+
+; type names for diagnostics
+dt_i8:  db "i8",0
+dt_u8:  db "u8",0
+dt_i16: db "i16",0
+dt_u16: db "u16",0
+dt_i32: db "i32",0
+dt_u32: db "u32",0
 
 ; rendering
-dr_pipe:  db ": ",0
-dr_hint:  db "'- ",0
-dr_dots:  db "...",0
+dr_pipe: db ": ",0
+dr_hint: db "'- ",0
+dr_dots: db "...",0
 
 ; summary
-sm_err:  db " errors, ",0
-sm_warn: db " warnings",0
+sm_pre_err:  db " error(s), ",0
+sm_pre_warn: db " warning(s)",0
 
 section .bss
 d_src:      resq 1
@@ -60,12 +81,12 @@ d_lpos:     resq 1
 
 section .text
 
-; ==================== BUFFER HELPERS ====================
-
+; buffer: reset position
 d_reset:
     mov qword[d_lpos], 0
     ret
 
+; buffer: flush to stdout
 d_flush:
     push rsi
     push rdx
@@ -79,7 +100,7 @@ d_flush:
     pop rsi
     ret
 
-; append byte al
+; buffer: append byte al
 d_putc:
     push rbx
     push rcx
@@ -91,7 +112,7 @@ d_putc:
     pop rbx
     ret
 
-; append rsi=ptr, rdx=len
+; buffer: append rsi=ptr rdx=len
 d_putb:
     push rdi
     push rcx
@@ -109,7 +130,7 @@ d_putb:
     pop rdi
     ret
 
-; append null-terminated rdi
+; buffer: append null-terminated rdi
 d_putz:
     push rsi
     push rdx
@@ -124,7 +145,7 @@ d_putz:
     pop rsi
     ret
 
-; append rcx spaces
+; buffer: append rcx spaces
 d_pad:
     push rsi
     push rdx
@@ -144,7 +165,7 @@ d_pad:
     pop rsi
     ret
 
-; append rcx tildes
+; buffer: append rcx tildes
 d_tilde:
     push rsi
     push rdx
@@ -164,7 +185,7 @@ d_tilde:
     pop rsi
     ret
 
-; append CRLF and flush
+; buffer: CRLF + flush
 d_nl:
     mov al, 13
     call d_putc
@@ -173,7 +194,7 @@ d_nl:
     call d_flush
     ret
 
-; append decimal rax
+; buffer: append decimal rax (signed)
 d_num:
     push rbx
     push rcx
@@ -243,7 +264,7 @@ d_digits:
     pop rax
     ret
 
-; append rax right-justified in rcx-char field
+; append rax right-justified in rcx chars
 d_numr:
     push r12
     push r13
@@ -262,9 +283,25 @@ d_numr:
     pop r12
     ret
 
-; ==================== SOURCE LOOKUP ====================
+; color helpers: each appends ANSI escape to buffer
+d_bred:  lea rdi,[c_bred]
+    jmp d_putz
+d_bwht:  lea rdi,[c_bwht]
+    jmp d_putz
+d_byel:  lea rdi,[c_byel]
+    jmp d_putz
+d_red:   lea rdi,[c_red]
+    jmp d_putz
+d_cyan:  lea rdi,[c_cyan]
+    jmp d_putz
+d_gray:  lea rdi,[c_gray]
+    jmp d_putz
+d_white: lea rdi,[c_white]
+    jmp d_putz
+d_rs:    lea rdi,[c_rs]
+    jmp d_putz
 
-; ptr_to_line: rdi=ptr into source -> rax=line number (1-based), 0 if out of range
+; source: rdi=ptr -> rax=line number (1-based)
 ptr_to_line:
     push rsi
     push rcx
@@ -296,7 +333,7 @@ ptr_to_line:
     pop rsi
     ret
 
-; ptr_to_col: rdi=ptr into source -> rax=column (0-based)
+; source: rdi=ptr -> rax=column (0-based)
 ptr_to_col:
     push rsi
     mov rsi, rdi
@@ -311,7 +348,7 @@ ptr_to_col:
 .d: pop rsi
     ret
 
-; get_line_start: rdi=line_num (1-based) -> rax=pointer to line start
+; source: rdi=line_num -> rax=pointer to line start
 get_line_start:
     push rcx
     push rdx
@@ -338,7 +375,7 @@ get_line_start:
     pop rcx
     ret
 
-; get_line_len: rdi=ptr to line start -> rax=length (no \r\n)
+; source: rdi=line_start_ptr -> rax=length (no CRLF)
 get_line_len:
     push rsi
     push rcx
@@ -358,19 +395,19 @@ get_line_len:
     pop rsi
     ret
 
-; ==================== LINE RENDERING ====================
-
-; "  NN  " (4-char number + 2 spaces)
+; render: gray line number right-justified in 4 chars + 2 spaces
 emit_gutter_num:
     push rcx
+    call d_gray
     mov rcx, 4
     call d_numr
     mov rcx, 2
     call d_pad
+    call d_rs
     pop rcx
     ret
 
-; "      " (6 blank spaces for non-numbered lines)
+; render: 6 blank spaces (for non-numbered lines)
 emit_gutter_blank:
     push rcx
     mov rcx, 6
@@ -378,13 +415,16 @@ emit_gutter_blank:
     pop rcx
     ret
 
-; ": "
+; render: gray ": "
 emit_pipe:
+    call d_gray
     lea rdi, [dr_pipe]
     call d_putz
+    call d_rs
     ret
 
-; full source line: "  NN  : source text\r\n"
+; render full source line: "  NN  : source text"
+; rax = line number
 emit_source_line:
     push r12
     push r13
@@ -393,6 +433,7 @@ emit_source_line:
     mov rax, r12
     call emit_gutter_num
     call emit_pipe
+    call d_white
     mov rdi, r12
     call get_line_start
     mov r13, rax
@@ -401,12 +442,14 @@ emit_source_line:
     mov rsi, r13
     mov rdx, rax
     call d_putb
+    call d_rs
     call d_nl
     pop r13
     pop r12
     ret
 
-; source line padded to ANNOT_COL (no newline, caller appends annotation then d_nl)
+; render source line padded to ANNOT_COL (no newline, caller appends annotation)
+; rax = line number
 emit_src_padded:
     push r12
     push r13
@@ -415,6 +458,7 @@ emit_src_padded:
     mov rax, r12
     call emit_gutter_num
     call emit_pipe
+    call d_white
     mov rdi, r12
     call get_line_start
     mov r13, rax
@@ -423,6 +467,7 @@ emit_src_padded:
     mov rsi, r13
     mov rdx, rax
     call d_putb
+    call d_rs
     ; pad to ANNOT_COL
     mov rcx, [d_lpos]
     mov rax, ANNOT_COL
@@ -437,8 +482,8 @@ emit_src_padded:
     pop r12
     ret
 
-; underline: "      :  col ~~~~  message\r\n"
-; rcx=col, r8=tilde_len, rdi=message
+; render underline: "      :  <col spaces><tildes>  <message>"
+; rcx=col, r8=tilde_len, rdi=message (printed in red)
 emit_underline:
     push r12
     push r13
@@ -451,6 +496,7 @@ emit_underline:
     call emit_pipe
     mov rcx, r12
     call d_pad
+    call d_red
     mov rcx, r13
     test rcx, rcx
     jz .msg
@@ -462,46 +508,57 @@ emit_underline:
     call d_putc
     mov rdi, r14
     call d_putz
+    call d_rs
     call d_nl
     pop r14
     pop r13
     pop r12
     ret
 
-; "      :\r\n"
+; render context line: "      :"
 emit_ctx_line:
     call d_reset
     call emit_gutter_blank
+    call d_gray
     mov al, ':'
     call d_putc
+    call d_rs
     call d_nl
     ret
 
-; "      '- message\r\n" (rdi=message)
+; render hint: "      '- <message>"
+; rdi = message (cyan prefix, gray text)
 emit_hint:
     push r12
     mov r12, rdi
     call d_reset
     call emit_gutter_blank
+    call d_cyan
     lea rdi, [dr_hint]
     call d_putz
+    call d_rs
+    call d_gray
     mov rdi, r12
     call d_putz
+    call d_rs
     call d_nl
     pop r12
     ret
 
-; "      : ...\r\n"
+; render dots separator: "      : ..."
 emit_dots_line:
     call d_reset
     call emit_gutter_blank
     call emit_pipe
+    call d_gray
     lea rdi, [dr_dots]
     call d_putz
+    call d_rs
     call d_nl
     ret
 
-; "  ERR[Exxx] title\r\n\r\n"
+; render error header: "  ERR[Exxx] title" (bold red tag, bold white title)
+; rdi=tag string, rsi=title string
 emit_header:
     push r12
     push r13
@@ -510,10 +567,14 @@ emit_header:
     call d_reset
     mov rcx, 2
     call d_pad
+    call d_bred
     mov rdi, r12
     call d_putz
+    call d_rs
+    call d_bwht
     mov rdi, r13
     call d_putz
+    call d_rs
     call d_nl
     call d_reset
     call d_nl
@@ -521,24 +582,101 @@ emit_header:
     pop r12
     ret
 
-; "      filename\r\n"
+; render filename: "      <filename>" in cyan
 emit_filename:
     call d_reset
     call emit_gutter_blank
+    call d_cyan
     mov rsi, [d_fname]
     mov rdx, [d_fnamelen]
     call d_putb
+    call d_rs
     call d_nl
     ret
 
+; render blank line
 emit_blank:
     call d_reset
     call d_nl
     ret
 
-; ==================== PUBLIC API ====================
+; type info helpers for E004
+; rdi=TYPE_* -> emit type name to buffer
+d_type_name:
+    cmp rdi, TYPE_I8
+    je .i8
+    cmp rdi, TYPE_U8
+    je .u8
+    cmp rdi, TYPE_I16
+    je .i16
+    cmp rdi, TYPE_U16
+    je .u16
+    cmp rdi, TYPE_I32
+    je .i32
+    cmp rdi, TYPE_U32
+    je .u32
+    ret
+.i8:  lea rdi,[dt_i8]
+    jmp d_putz
+.u8:  lea rdi,[dt_u8]
+    jmp d_putz
+.i16: lea rdi,[dt_i16]
+    jmp d_putz
+.u16: lea rdi,[dt_u16]
+    jmp d_putz
+.i32: lea rdi,[dt_i32]
+    jmp d_putz
+.u32: lea rdi,[dt_u32]
+    jmp d_putz
 
-; diag_init: rdi=src_buf, rsi=src_len, rdx=fname, rcx=fname_len
+; rdi=TYPE_* -> rax=min value for range
+d_type_min:
+    cmp rdi, TYPE_I8
+    je .i8
+    cmp rdi, TYPE_I16
+    je .i16
+    cmp rdi, TYPE_I32
+    je .i32
+    xor rax, rax
+    ret
+.i8:  mov rax, -128
+    ret
+.i16: mov rax, -32768
+    ret
+.i32: mov rax, -2147483648
+    ret
+
+; rdi=TYPE_* -> rax=max value for range
+d_type_max:
+    cmp rdi, TYPE_I8
+    je .i8
+    cmp rdi, TYPE_U8
+    je .u8
+    cmp rdi, TYPE_I16
+    je .i16
+    cmp rdi, TYPE_U16
+    je .u16
+    cmp rdi, TYPE_I32
+    je .i32
+    cmp rdi, TYPE_U32
+    je .u32
+    mov rax, 0x7FFFFFFFFFFFFFFF
+    ret
+.i8:  mov rax, 127
+    ret
+.u8:  mov rax, 255
+    ret
+.i16: mov rax, 32767
+    ret
+.u16: mov rax, 65535
+    ret
+.i32: mov rax, 2147483647
+    ret
+.u32: mov rax, 4294967295
+    ret
+
+; public: init diagnostics
+; rdi=src_buf, rsi=src_len, rdx=fname, rcx=fname_len
 diag_init:
     mov [d_src], rdi
     mov [d_srclen], rsi
@@ -552,8 +690,8 @@ diag_get_errors:
     mov rax, [d_errors]
     ret
 
-; diag_err_undef_var: rdi=name_ptr, rsi=name_len
-; ERR[E001] with source line and underline
+; E001: undefined variable
+; rdi=name_ptr (into source), rsi=name_len
 diag_err_undef_var:
     push rbx
     push r12
@@ -563,23 +701,22 @@ diag_err_undef_var:
     mov r12, rdi
     mov r13, rsi
     inc qword[d_errors]
-    ; compute position
+    ; find position
     mov rdi, r12
     call ptr_to_line
     mov r14, rax
     mov rdi, r12
     call ptr_to_col
     mov r15, rax
-    ; header
+    ; header + filename
     lea rdi, [de001h]
     lea rsi, [de001t]
     call emit_header
-    ; filename
     call emit_filename
     ; source line
     mov rax, r14
     call emit_source_line
-    ; underline under the name
+    ; underline at name position
     mov rcx, r15
     mov r8, r13
     lea rdi, [da_noscope]
@@ -594,8 +731,8 @@ diag_err_undef_var:
     pop rbx
     ret
 
-; diag_err_undef_fn: rdi=name_ptr, rsi=name_len
-; ERR[E003] with source line and underline
+; E003: undefined function
+; rdi=name_ptr, rsi=name_len
 diag_err_undef_fn:
     push rbx
     push r12
@@ -630,9 +767,8 @@ diag_err_undef_fn:
     pop rbx
     ret
 
-; diag_err_wrong_argc: rdi=call_ptr, rsi=call_len, rdx=expected, rcx=got,
-;                      r8=def_ptr, r9=def_len
-; ERR[E002] with definition line, dots, call line, hint
+; E002: wrong argument count
+; rdi=call_ptr, rsi=call_len, rdx=expected, rcx=got, r8=def_ptr, r9=def_len
 diag_err_wrong_argc:
     push rbx
     push r12
@@ -641,59 +777,60 @@ diag_err_wrong_argc:
     push r15
     push rbp
     sub rsp, 48
-    mov [rsp+0], rdi       ; call name ptr
-    mov [rsp+8], rsi       ; call name len
-    mov [rsp+16], rdx      ; expected
-    mov [rsp+24], rcx      ; got
-    mov [rsp+32], r8       ; def name ptr
-    mov [rsp+40], r9       ; def name len
+    mov [rsp+0], rdi
+    mov [rsp+8], rsi
+    mov [rsp+16], rdx
+    mov [rsp+24], rcx
+    mov [rsp+32], r8
+    mov [rsp+40], r9
     inc qword[d_errors]
     ; header
     lea rdi, [de002h]
     lea rsi, [de002t]
     call emit_header
-    ; filename
     call emit_filename
-    ; definition line with right annotation
+    ; definition line with right annotation (gray)
     mov rdi, [rsp+32]
     test rdi, rdi
     jz .no_def
     call ptr_to_line
     test rax, rax
     jz .no_def
-    ; padded source line (no newline yet)
     call emit_src_padded
-    ; append ". defined: N params"
+    call d_gray
     lea rdi, [da_defn]
     call d_putz
     mov rax, [rsp+16]
     call d_num
     lea rdi, [da_params]
     call d_putz
+    call d_rs
     call d_nl
-    ; dots separator
     call emit_dots_line
 .no_def:
-    ; call site line with right annotation
+    ; call site line with red annotation
     mov rdi, [rsp+0]
     call ptr_to_line
-    ; padded source line
     call emit_src_padded
-    ; append "* called: M args"
+    call d_red
     lea rdi, [da_call]
     call d_putz
     mov rax, [rsp+24]
     call d_num
     lea rdi, [da_args]
     call d_putz
+    call d_rs
     call d_nl
     ; context
     call emit_ctx_line
-    ; hint: "expected N arguments, got M"
+    ; hint line: "expected N arguments, got M"
     call d_reset
     call emit_gutter_blank
+    call d_cyan
     lea rdi, [dr_hint]
     call d_putz
+    call d_rs
+    call d_gray
     lea rdi, [da_expect]
     call d_putz
     mov rax, [rsp+16]
@@ -702,8 +839,8 @@ diag_err_wrong_argc:
     call d_putz
     mov rax, [rsp+24]
     call d_num
+    call d_rs
     call d_nl
-    ; trailing blank
     call emit_blank
     add rsp, 48
     pop rbp
@@ -714,20 +851,110 @@ diag_err_wrong_argc:
     pop rbx
     ret
 
-; diag_summary: "  N errors, M warnings\r\n"
+; E004: type mismatch / value out of range
+; rdi=name_ptr, rsi=name_len, rdx=value, rcx=type_id
+diag_err_type_range:
+    push rbx
+    push r12
+    push r13
+    push r14
+    push r15
+    push rbp
+    mov r12, rdi       ; name ptr (source position)
+    mov r13, rsi       ; name len
+    mov r14, rdx       ; literal value
+    mov r15, rcx       ; TYPE_*
+    inc qword[d_errors]
+    ; header
+    lea rdi, [de004h]
+    lea rsi, [de004t]
+    call emit_header
+    call emit_filename
+    ; source line with right annotation: "! <value> out of range for <type>"
+    mov rdi, r12
+    call ptr_to_line
+    call emit_src_padded
+    call d_red
+    mov al, '!'
+    call d_putc
+    mov al, ' '
+    call d_putc
+    mov rax, r14
+    call d_num
+    lea rdi, [da_oor]
+    call d_putz
+    mov rdi, r15
+    call d_type_name
+    call d_rs
+    call d_nl
+    ; context line
+    call emit_ctx_line
+    ; hint: "<type> range: <min>..<max>"
+    call d_reset
+    call emit_gutter_blank
+    call d_cyan
+    lea rdi, [dr_hint]
+    call d_putz
+    call d_rs
+    call d_gray
+    mov rdi, r15
+    call d_type_name
+    lea rdi, [da_range]
+    call d_putz
+    mov rdi, r15
+    call d_type_min
+    call d_num
+    lea rdi, [da_dotdot]
+    call d_putz
+    mov rdi, r15
+    call d_type_max
+    call d_num
+    call d_rs
+    call d_nl
+    ; second hint: suggestion
+    lea rdi, [da_usewider]
+    call emit_hint
+    call emit_blank
+    pop rbp
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    pop rbx
+    ret
+
+; summary: "  N error(s), M warning(s)" with colors
 diag_summary:
     call d_reset
     call emit_blank
     call d_reset
     mov rcx, 2
     call d_pad
+    ; error count: bold red if > 0, else white
+    cmp qword[d_errors], 0
+    je .err_ok
+    call d_bred
+    jmp .perr
+.err_ok:
+    call d_white
+.perr:
     mov rax, [d_errors]
     call d_num
-    lea rdi, [sm_err]
+    lea rdi, [sm_pre_err]
     call d_putz
+    call d_rs
+    ; warning count: bold yellow if > 0, else gray
+    cmp qword[d_warnings], 0
+    je .warn_ok
+    call d_byel
+    jmp .pwarn
+.warn_ok:
+    call d_gray
+.pwarn:
     mov rax, [d_warnings]
     call d_num
-    lea rdi, [sm_warn]
+    lea rdi, [sm_pre_warn]
     call d_putz
+    call d_rs
     call d_nl
     ret

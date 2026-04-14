@@ -26,7 +26,7 @@ msg_p3:db "  [3/4] encoding x86",13,10,0
 msg_p4:db "  [4/4] writing PE",13,10,0
 msg_ok:db 13,10,"  Done: ",0
 msg_chk: db "  [1.5/4] Checking...",13,10,0
-msg_chk_fail: db 13,10,"  Compilation aborted.",13,10,0
+msg_chk_fail: db 13,10,27,"[1;31m","  Compilation aborted.",27,"[0m",13,10,0 ; oh fuck me with these [1;31m eqwjr8f12j3q89rj123___  EHAUSHJNDF <vomit>
 msg_nl:db 13,10,0
 msg_eo:db "  [error] cannot open file",13,10,0
 msg_ast:db "  [debug] AST root: ",0
@@ -61,7 +61,19 @@ _start:
     call GetStdHandle
     add rsp,32
     mov [stdout_h],rax
-    
+    ; enable ANSI escape sequences for colored diagnostics
+    sub rsp,48
+    mov rcx,rax
+    lea rdx,[console_mode]
+    call GetConsoleMode
+    add rsp,48
+    mov eax,[console_mode]
+    or eax,4                ; ENABLE_VIRTUAL_TERMINAL_PROCESSING
+    sub rsp,32
+    mov rcx,[stdout_h]
+    mov edx,eax
+    call SetConsoleMode
+    add rsp,32
     lea rdi,[msg_ban]
     call pw
     call frontend_init
