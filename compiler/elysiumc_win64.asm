@@ -1,6 +1,7 @@
 default rel
 %include "defs.inc"
 extern GetStdHandle,WriteFile,ReadFile,CreateFileA,CloseHandle
+extern GetConsoleMode, SetConsoleMode
 extern ExitProcess,GetCommandLineA
 extern frontend_init,frontend_run
 extern backend_init,backend_compile_binary_win
@@ -49,6 +50,7 @@ file_buf:resb INIT_SOURCE
 in_name:resb 260
 out_name:resb 260
 dbg_buf:resb 32
+console_mode: resd 1
 
 section .text
 global _start
@@ -59,6 +61,7 @@ _start:
     call GetStdHandle
     add rsp,32
     mov [stdout_h],rax
+    
     lea rdi,[msg_ban]
     call pw
     call frontend_init

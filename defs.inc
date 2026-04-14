@@ -278,3 +278,28 @@ IMPORT_DATA_SIZE equ 0x100
 ; ELF constants
 ELF_BASE equ 0x400000
 ELF_CODE_OFF equ 0x1000
+
+; ==================== FUNCTION FRAME MACROS ====================
+; Usage:
+;   SAVES rbx, r12, r13, r14, r15
+;   ... function body ...
+;   RESTORES rbx, r12, r13, r14, r15
+;   ret
+;
+; SAVES pushes left-to-right, RESTORES pops right-to-left.
+; If you change one, you MUST change the other - they sit next
+; to each other visually so you always see both.
+
+%macro SAVES 1-*
+    %rep %0
+        push %1
+        %rotate 1
+    %endrep
+%endmacro
+
+%macro RESTORES 1-*
+    %rep %0
+        %rotate -1
+        pop %1
+    %endrep
+%endmacro

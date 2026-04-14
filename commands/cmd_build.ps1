@@ -102,6 +102,23 @@ function Cleanup-Obj {
 # build compiler
 function Build-Compiler {
     Write-Host "  compiler" -ForegroundColor White
+
+    # lint before build
+    Write-Host -NoNewline "    lint ... " -ForegroundColor White
+    $lintScript = Join-Path $PSScriptRoot "cmd_lint.ps1"
+    if (Test-Path $lintScript) {
+        $lintOut = & $lintScript "all" 2>&1 | Out-String
+        $hasErrors = $lintOut -match '\[x\] L001'
+        if ($hasErrors) {
+            Write-Host "FAIL" -ForegroundColor Red
+            Write-Host $lintOut
+            return $false
+        }
+        Write-Host "OK" -ForegroundColor Green
+    } else {
+        Write-Host "SKIP" -ForegroundColor Yellow
+    }
+
     $objs = Build-AsmFiles $compilerSrcs "compiler"
     if (-not $objs) { Cleanup-Obj; return $false }
 

@@ -21,8 +21,9 @@ extern platform_write
 extern CreateFileA, WriteFile, CloseHandle
 
 global backend_init, backend_compile, backend_get_output
-global backend_compile_binary_win
+global backend_compile_binary_win, backend_compile_binary
 global be_target, be_mod_root
+
 
 GENERIC_WRITE equ 0x40000000
 CREATE_ALWAYS equ 2
@@ -47,6 +48,9 @@ be_mod_root: resq 1
 wr_tmp2: resd 1
 
 section .text
+
+backend_compile_binary:
+    jmp backend_compile_binary_win
 
 ; debug helper: print decimal number
 be_print_num:

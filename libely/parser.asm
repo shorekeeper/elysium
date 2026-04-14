@@ -87,7 +87,7 @@ perr:push rdi
 
 ; ct: read current token -> rax=type, rbx=value, rcx=length
 ; also updates cur_line
-ct: push rdx
+ct: push rdx ; @ely:lint suppress L001
     push r11
     mov rax,[pp]
     imul rdx,rax,TOKEN_SIZE

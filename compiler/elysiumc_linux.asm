@@ -9,6 +9,7 @@
 extern frontend_init,frontend_run,backend_init,backend_compile,backend_get_output
 extern backend_compile_binary
 global platform_write
+
 SYS_READ equ 0
 SYS_WRITE equ 1
 SYS_OPEN equ 2
