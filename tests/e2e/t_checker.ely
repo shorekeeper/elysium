@@ -1,0 +1,12 @@
+module Main {
+  fn add(a, b) -> i64 {
+    return a + b;
+  }
+
+  public fn main() -> i64 {
+    let x = 10;
+    let y = add(x, 20);
+    print(y);
+    return 0;
+  }
+}

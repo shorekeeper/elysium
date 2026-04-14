@@ -4,6 +4,9 @@ extern GetStdHandle,WriteFile,ReadFile,CreateFileA,CloseHandle
 extern ExitProcess,GetCommandLineA
 extern frontend_init,frontend_run
 extern backend_init,backend_compile_binary_win
+extern checker_run, diag_init, diag_summary, diag_get_errors
+extern lex_source_buf, lex_source_len
+
 global platform_write
 
 STD_OUTPUT_HANDLE equ -11
@@ -21,6 +24,8 @@ msg_p2:db "  [2/4] lowering to MIR",13,10,0
 msg_p3:db "  [3/4] encoding x86",13,10,0
 msg_p4:db "  [4/4] writing PE",13,10,0
 msg_ok:db 13,10,"  Done: ",0
+msg_chk: db "  [1.5/4] Checking...",13,10,0
+msg_chk_fail: db 13,10,"  Compilation aborted.",13,10,0
 msg_nl:db 13,10,0
 msg_eo:db "  [error] cannot open file",13,10,0
 msg_ast:db "  [debug] AST root: ",0
@@ -109,6 +114,25 @@ _start:
     lea rdi,[msg_nl]
     call pw
 
+; [1.5/4] Check
+    lea rdi,[msg_chk]
+    call pw
+    ; init diagnostics with source and filename
+    mov rdi,[lex_source_buf]
+    mov rsi,[lex_source_len]
+    lea rdx,[in_name]
+    xor rcx,rcx
+.fnl:cmp byte[rdx+rcx],0
+    je .fnd
+    inc rcx
+    jmp .fnl
+.fnd:
+    call diag_init
+    mov rdi,r14
+    call checker_run
+    test rax,rax
+    jnz .chk_fail
+
     ; [2/4] Compile to binary
     lea rdi,[msg_p2]
     call pw
@@ -125,6 +149,13 @@ _start:
     lea rdi,[msg_nl]
     call pw
     xor ecx,ecx
+    call ExitProcess
+
+.chk_fail:
+    call diag_summary
+    lea rdi,[msg_chk_fail]
+    call pw
+    mov ecx,1
     call ExitProcess
 
 .usage:

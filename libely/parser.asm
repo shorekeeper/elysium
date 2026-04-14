@@ -707,7 +707,8 @@ p_stmt:
     je .idx_do
     cmp rax,TOK_DOT
     je .field_set
-    jmp .idx_bail
+    cmp rax,TOK_LPAREN
+    je .call_stmt
 .idx_do:
     call ea
     call p_expr
@@ -754,6 +755,41 @@ p_stmt:
     mov [rax+48],rbx
     pop rbx
     mov [rax+56],rbx
+    jmp .done
+; bare function call as statement: name(args);
+.call_stmt:
+    call ea
+    xor r14,r14
+    xor r15,r15
+.cs_args:
+    call ct
+    cmp rax,TOK_RPAREN
+    je .cs_close
+    call p_expr
+    test r14,r14
+    jnz .cs_ch
+    mov r14,rax
+    mov r15,rax
+    jmp .cs_nx
+.cs_ch:
+    mov [r15+32],rax
+    mov r15,rax
+.cs_nx:
+    call ct
+    cmp rax,TOK_COMMA
+    jne .cs_close
+    call ea
+    jmp .cs_args
+.cs_close:
+    mov rdi,TOK_RPAREN
+    call ex
+    mov rdi,TOK_SEMICOLON
+    call ex
+    call new_node
+    mov qword[rax],NODE_CALL
+    mov [rax+48],r12
+    mov [rax+56],r13
+    mov [rax+16],r14
     jmp .done
 .idx_bail:
     cmp rax,TOK_EQUALS

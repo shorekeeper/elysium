@@ -1296,6 +1296,8 @@ lower_stmt:
     je .continue_
     cmp rax,NODE_ASSIGN
     je .assign
+    cmp rax,NODE_CALL
+    je .call_stmt
     jmp .done
 
 ; ---- let ----
@@ -2335,6 +2337,11 @@ lower_stmt:
     call mir_emit
     jmp .done
 
+; bare function call as statement (discard return value)
+.call_stmt:
+    mov rdi,r12
+    call lower_expr
+    jmp .done
 ; ---- raw { body } ----
 .raw_blk:
     inc qword[sym_depth]
