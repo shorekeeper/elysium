@@ -710,6 +710,7 @@ p_stmt:
     je .field_set
     cmp rax,TOK_LPAREN
     je .call_stmt
+    jmp .idx_bail
 .idx_do:
     call ea
     call p_expr
