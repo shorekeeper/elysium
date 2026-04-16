@@ -15,12 +15,14 @@ extern treg_init, treg_define, treg_lookup, treg_field_index
 extern treg_field_count, treg_total_size
 extern treg_define_union, treg_lookup_variant
 extern treg_foff, treg_ftype
+extern lower_expr_ext, x86_encode_ext
 extern type_size
 extern vmem_alloc
 global lower_module
 global lower_emit_runtime_win, lower_emit_entry_win
 global lower_emit_runtime_linux, lower_emit_entry_linux
 global lower_entry_label
+global lower_expr
 global str_pool, str_pool_pos
 
 ; local limit for done/fn tables (these are compiler-internal,
@@ -1084,28 +1086,24 @@ lower_clause:
     call m2
     jmp .a_done
 .a_rdx:
-    mov rdi,MIR_RAW_BYTES
-    lea rsi,[rt_mov_rax_rdx]
-    mov rdx,rt_mov_rax_rdx_len
-    call m3
+    mov rdi,MIR_MOV_RAX_RDX
+    xor rsi,rsi
+    call m2
     jmp .a_done
 .a_rcx:
-    mov rdi,MIR_RAW_BYTES
-    lea rsi,[rt_mov_rax_rcx]
-    mov rdx,rt_mov_rax_rcx_len
-    call m3
+    mov rdi,MIR_MOV_RAX_RCX
+    xor rsi,rsi
+    call m2
     jmp .a_done
 .a_r8:
-    mov rdi,MIR_RAW_BYTES
-    lea rsi,[rt_mov_rax_r8]
-    mov rdx,rt_mov_rax_r8_len
-    call m3
+    mov rdi,MIR_MOV_RAX_R8
+    xor rsi,rsi
+    call m2
     jmp .a_done
 .a_r9:
-    mov rdi,MIR_RAW_BYTES
-    lea rsi,[rt_mov_rax_r9]
-    mov rdx,rt_mov_rax_r9_len
-    call m3
+    mov rdi,MIR_MOV_RAX_R9
+    xor rsi,rsi
+    call m2
     jmp .a_done
 .a_done:
     pop r15
@@ -1148,29 +1146,27 @@ lower_clause:
     mov rdi,MIR_MOV_RAX_RSI
     xor rsi,rsi
     call m2
+    jmp .pl_done
 .pl_rdx:
-    mov rdi,MIR_RAW_BYTES
-    lea rsi,[rt_mov_rax_rdx]
-    mov rdx,rt_mov_rax_rdx_len
-    call m3
+    mov rdi,MIR_MOV_RAX_RDX
+    xor rsi,rsi
+    call m2
     jmp .pl_done
 .pl_rcx:
-    mov rdi,MIR_RAW_BYTES
-    lea rsi,[rt_mov_rax_rcx]
-    mov rdx,rt_mov_rax_rcx_len
-    call m3
+    mov rdi,MIR_MOV_RAX_RCX
+    xor rsi,rsi
+    call m2
     jmp .pl_done
 .pl_r8:
-    mov rdi,MIR_RAW_BYTES
-    lea rsi,[rt_mov_rax_r8]
-    mov rdx,rt_mov_rax_r8_len
-    call m3
+    mov rdi,MIR_MOV_RAX_R8
+    xor rsi,rsi
+    call m2
     jmp .pl_done
 .pl_r9:
-    mov rdi,MIR_RAW_BYTES
-    lea rsi,[rt_mov_rax_r9]
-    mov rdx,rt_mov_rax_r9_len
-    call m3
+    mov rdi,MIR_MOV_RAX_R9
+    xor rsi,rsi
+    call m2
+    jmp .pl_done
 .pl_done:
     pop r15
     pop rbx
@@ -1300,7 +1296,7 @@ lower_stmt:
     je .call_stmt
     jmp .done
 
-; ---- let ----
+;- let-
 .let:
     mov rdi,[r12+16]
     test rdi,rdi
@@ -1577,7 +1573,7 @@ lower_stmt:
     mov rbx,[rbx+32]
     jmp .rec_st
 
-; ---- return ----
+;- return-
 .ret:
     mov rdi,[r12+16]
     call lower_expr
@@ -1586,7 +1582,7 @@ lower_stmt:
     call m2
     jmp .done
 
-; ---- print(expr) ----
+;- print(expr)-
 .prn:
     mov rdi,[r12+16]
     call lower_expr
@@ -1598,7 +1594,7 @@ lower_stmt:
     call m2
     jmp .done
 
-; ---- print_str(expr) ----
+;- print_str(expr)-
 .pstr:
     mov rdi,[r12+16]
     call lower_expr
@@ -1607,7 +1603,7 @@ lower_stmt:
     call m2
     jmp .done
 
-; ---- if/else ----
+;- if/else-
 .if_:
     call mir_new_label
     mov r13,rax                ; else label
@@ -1645,7 +1641,7 @@ lower_stmt:
     call m2
     jmp .done
 
-; ---- name[index] = value ----
+;- name[index] = value-
 .idx_set:
     mov rdi,[r12+24]
     call lower_expr
@@ -1684,7 +1680,7 @@ lower_stmt:
     call mir_emit
     jmp .done
 
-; ---- match ----
+;- match-
 .match:
     ; check for union match (first arm kind=3)
     mov rbx,[r12+24]
@@ -1805,7 +1801,7 @@ lower_stmt:
     call m2
     jmp .done
 
-; ---- union match: match var { Variant(bind) => ...; } ----
+;- union match: match var { Variant(bind) => ...; }-
 .match_union:
     mov rdi,[r12+16]
     cmp qword[rdi],NODE_IDENT
@@ -1913,7 +1909,7 @@ lower_stmt:
     call m2
     jmp .done
 
-; ---- anchor name { body } ----
+;- anchor name { body }-
 .anchor:
     mov rdi,CKPT_BYTES
     call sym_alloc_bytes
@@ -1961,7 +1957,7 @@ lower_stmt:
     call anc_pop
     jmp .done
 
-; ---- supervise { body } ----
+;- supervise { body }-
 .super:
     mov rdi,CKPT_BYTES
     call sym_alloc_bytes
@@ -2027,7 +2023,7 @@ lower_stmt:
     call m2
     jmp .done
 
-; ---- unwind name; ----
+;- unwind name;-
 .unwind:
     mov rsi,[r12+48]
     mov rcx,[r12+56]
@@ -2052,7 +2048,7 @@ lower_stmt:
     call m2
     jmp .done
 
-; ---- store(ptr, offset, value) ----
+;- store(ptr, offset, value)-
 .store_:
     mov rdi,[r12+8]
     call lower_expr
@@ -2077,7 +2073,7 @@ lower_stmt:
     call m2
     jmp .done
 
-; ---- release(ptr) ----
+;- release(ptr)-
 .release_:
     mov rdi,[r12+16]
     call lower_expr
@@ -2089,7 +2085,7 @@ lower_stmt:
     call m2
     jmp .done
 
-; ---- pool_drain(pool) ----
+;- pool_drain(pool)-
 .pdrain:
     mov rdi,[r12+16]
     call lower_expr
@@ -2101,7 +2097,7 @@ lower_stmt:
     call m2
     jmp .done
 
-; ---- name.field = expr ----
+;- name.field = expr-
 .field_set:
     mov rdi,[r12+16]
     test rdi,rdi
@@ -2151,7 +2147,7 @@ lower_stmt:
     call mir_emit
     jmp .done
 
-; ---- while expr { body } ----
+;- while expr { body }-
 .while_:
     call mir_new_label
     mov r13,rax
@@ -2191,7 +2187,7 @@ lower_stmt:
     call loop_pop
     jmp .done
 
-; ---- for ident in start..end { body } ----
+;- for ident in start..end { body }-
 ; node layout: [48/56]=name, [24]=start, [8]=end, [16]=body
 .for_:
     inc qword[sym_depth]
@@ -2293,7 +2289,7 @@ lower_stmt:
     dec qword[sym_depth]
     jmp .done
 
-; ---- break ----
+;- break-
 .break_:
     mov rax,[loop_stk_depth]
     test rax,rax
@@ -2304,7 +2300,7 @@ lower_stmt:
     call m2
     jmp .done
 
-; ---- continue ----
+;- continue-
 .continue_:
     mov rax,[loop_stk_depth]
     test rax,rax
@@ -2315,7 +2311,7 @@ lower_stmt:
     call m2
     jmp .done
 
-; ---- x = expr (reassignment) ----
+;- x = expr (reassignment)-
 .assign:
     mov rsi,[r12+48]
     mov rcx,[r12+56]
@@ -2342,7 +2338,7 @@ lower_stmt:
     mov rdi,r12
     call lower_expr
     jmp .done
-; ---- raw { body } ----
+;- raw { body }-
 .raw_blk:
     inc qword[sym_depth]
     mov rdi,[r12+16]
@@ -2360,6 +2356,95 @@ lower_stmt:
     ret
 
 ; ==================== EXPRESSIONS ====================
+
+; lower_safe_divmod: rdi = final opcode (MIR_IDIV_RBX or MIR_IMOD_RBX)
+; emits safe division diamond (zero-check + supervise unwind)
+lower_safe_divmod:
+    push rbx
+    push r13
+    push r14
+    push r15
+    mov r15,rdi
+    call mir_new_label
+    push rax
+    call mir_new_label
+    push rax
+    call mir_new_label
+    push rax
+    mov rdi,MIR_TEST
+    xor rsi,rsi
+    xor rdx,rdx
+    call mir_emit
+    mov rdi,MIR_JNZ
+    mov rsi,[rsp+16]
+    xor rdx,rdx
+    call mir_emit
+    mov rdi,MIR_LOAD_DATA
+    mov rsi,DATA_SV_CURRENT
+    xor rdx,rdx
+    call mir_emit
+    mov rdi,MIR_TEST
+    xor rsi,rsi
+    xor rdx,rdx
+    call mir_emit
+    mov rdi,MIR_JZ
+    mov rsi,[rsp+8]
+    xor rdx,rdx
+    call mir_emit
+    mov rdi,MIR_MOV_RDI_RAX
+    xor rsi,rsi
+    xor rdx,rdx
+    call mir_emit
+    mov rdi,MIR_ICONST
+    mov rsi,1
+    xor rdx,rdx
+    call mir_emit
+    mov rdi,MIR_MOV_RSI_RAX
+    xor rsi,rsi
+    xor rdx,rdx
+    call mir_emit
+    mov rdi,MIR_CALL
+    mov rsi,[rt_ckpt_restore_label]
+    xor rdx,rdx
+    call mir_emit
+    mov rdi,MIR_LABEL
+    mov rsi,[rsp+8]
+    xor rdx,rdx
+    call mir_emit
+    mov rdi,MIR_XOR_EAX
+    xor rsi,rsi
+    xor rdx,rdx
+    call mir_emit
+    mov rdi,MIR_JMP
+    mov rsi,[rsp]
+    xor rdx,rdx
+    call mir_emit
+    mov rdi,MIR_LABEL
+    mov rsi,[rsp+16]
+    xor rdx,rdx
+    call mir_emit
+    mov rdi,MIR_XCHG_RBX
+    xor rsi,rsi
+    xor rdx,rdx
+    call mir_emit
+    mov rdi,MIR_CQO
+    xor rsi,rsi
+    xor rdx,rdx
+    call mir_emit
+    mov rdi,r15            ; final opcode
+    xor rsi,rsi
+    xor rdx,rdx
+    call mir_emit
+    mov rdi,MIR_LABEL
+    mov rsi,[rsp]
+    xor rdx,rdx
+    call mir_emit
+    add rsp,24
+    pop r15
+    pop r14
+    pop r13
+    pop rbx
+    ret
 
 lower_expr:
     push rbx
@@ -2408,6 +2493,13 @@ lower_expr:
     je .field_access
     cmp rax,NODE_BORROW
     je .borrow
+    ; try extended expression nodes
+    push r12
+    mov rdi,r12
+    call lower_expr_ext
+    pop r12
+    test rax,rax
+    jnz .d
 .zero:
     mov rdi,MIR_XOR_EAX
     xor rsi,rsi
@@ -2716,6 +2808,18 @@ lower_expr:
     je .ble
     cmp rbx,TOK_GE
     je .bge
+    cmp rbx,TOK_PERCENT
+    je .bmod
+    cmp rbx,TOK_AMP
+    je .bband
+    cmp rbx,TOK_BAR
+    je .bbor
+    cmp rbx,TOK_CARET
+    je .bbxor
+    cmp rbx,TOK_SHL
+    je .bshl
+    cmp rbx,TOK_SHR
+    je .bshr
     jmp .d
 .ba:mov rdi,MIR_ADD
     jmp .binop
@@ -2724,6 +2828,19 @@ lower_expr:
 .bm:mov rdi,MIR_MUL
     jmp .binop
 
+.bmod:mov rdi,MIR_IMOD_RBX
+    call lower_safe_divmod
+    jmp .d
+.bband:mov rdi,MIR_BAND
+    jmp .binop
+.bbor:mov rdi,MIR_BOR
+    jmp .binop
+.bbxor:mov rdi,MIR_BXOR
+    jmp .binop
+.bshl:mov rdi,MIR_SHL
+    jmp .binop
+.bshr:mov rdi,MIR_SHR
+    jmp .binop
 ; safe division: check for zero, unwind via sv_current if available
 .bv:
     call mir_new_label

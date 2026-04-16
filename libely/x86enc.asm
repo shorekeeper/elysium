@@ -5,10 +5,12 @@ default rel
 %include "defs.inc"
 extern mir_buf, mir_pos
 extern vmem_alloc, vmem_realloc
+extern x86_encode_ext
 global x86_init, x86_encode, x86_get_code
 global x86_iat_patches, x86_iat_patch_count
 global x86_data_patches, x86_data_patch_count
 global x86_get_label_offset
+global eb1
 
 section .bss
 code_buf:   resq 1            ; -> x86 byte output
@@ -396,6 +398,19 @@ x86_encode:
     je .m_r8d_ecx
     cmp r14, MIR_MOV_R9_RAX
     je .m_r9_rax
+    cmp r14, MIR_MOV_RAX_RDX
+    je .m_rax_rdx
+    cmp r14, MIR_MOV_RAX_RCX
+    je .m_rax_rcx
+    cmp r14, MIR_MOV_RAX_R8
+    je .m_rax_r8
+    cmp r14, MIR_MOV_RAX_R9
+    je .m_rax_r9
+
+    mov rdi, r14
+    mov rsi, r15
+    mov rdx, rbp
+    call x86_encode_ext
     jmp .next
 
 ; mov rax, imm64
@@ -1193,6 +1208,46 @@ x86_encode:
     mov al, 0x89
     call eb1
     mov al, 0xC1
+    call eb1
+    jmp .next
+
+; mov rax, rdx (48 89 D0)
+.m_rax_rdx:
+    mov al, 0x48
+    call eb1
+    mov al, 0x89
+    call eb1
+    mov al, 0xD0
+    call eb1
+    jmp .next
+
+; mov rax, rcx (48 89 C8)
+.m_rax_rcx:
+    mov al, 0x48
+    call eb1
+    mov al, 0x89
+    call eb1
+    mov al, 0xC8
+    call eb1
+    jmp .next
+
+; mov rax, r8 (4C 89 C0)
+.m_rax_r8:
+    mov al, 0x4C
+    call eb1
+    mov al, 0x89
+    call eb1
+    mov al, 0xC0
+    call eb1
+    jmp .next
+
+; mov rax, r9 (4C 89 C8)
+.m_rax_r9:
+    mov al, 0x4C
+    call eb1
+    mov al, 0x89
+    call eb1
+    mov al, 0xC8
     call eb1
     jmp .next
 

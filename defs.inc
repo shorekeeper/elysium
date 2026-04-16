@@ -89,6 +89,40 @@ TOK_IN equ 132
 TOK_BREAK equ 133
 TOK_CONTINUE equ 134
 
+; extended operator tokens
+TOK_PERCENT    equ 135
+TOK_BANG       equ 136
+TOK_AND_AND    equ 137
+TOK_OR_OR      equ 138
+TOK_TILDE      equ 139
+TOK_CARET      equ 140
+TOK_SHL        equ 141
+TOK_SHR        equ 142
+TOK_PLUS_EQ    equ 143
+TOK_MINUS_EQ   equ 144
+TOK_STAR_EQ    equ 145
+TOK_SLASH_EQ   equ 146
+TOK_PERCENT_EQ equ 147
+TOK_CHAR       equ 148
+
+; extended AST nodes
+NODE_UNARY_NEG  equ 70
+NODE_UNARY_NOT  equ 71
+NODE_UNARY_BNOT equ 72
+NODE_LOGIC_AND  equ 73
+NODE_LOGIC_OR   equ 74
+
+; extended MIR opcodes
+MIR_NEG       equ 120
+MIR_LNOT      equ 121
+MIR_IMOD_RBX  equ 122
+MIR_BAND      equ 123
+MIR_BOR       equ 124
+MIR_BXOR      equ 125
+MIR_BNOT      equ 126
+MIR_SHL       equ 127
+MIR_SHR       equ 128
+
 ; AST nodes
 NODE_MODULE equ 1
 NODE_FUNC equ 2
@@ -256,6 +290,37 @@ MIR_MOV_RCX_IMM equ 110
 MIR_MOV_RDX_RBX equ 111
 MIR_MOV_R8D_ECX equ 112
 MIR_MOV_R9_RAX equ 113
+
+; SSA: proper opcodes for param registers 2-5 (will replace MIR_RAW_BYTES after some patches bruh)
+MIR_MOV_RAX_RDX equ 114
+MIR_MOV_RAX_RCX equ 115
+MIR_MOV_RAX_R8  equ 116
+MIR_MOV_RAX_R9  equ 117
+
+; SSA infrastructure
+SSA_INST_SIZE        equ 48
+SSA_F_OP             equ 0
+SSA_F_DEST           equ 8
+SSA_F_SRC1           equ 16
+SSA_F_SRC2           equ 24
+SSA_F_IMM            equ 32
+SSA_F_FLAG           equ 40
+INIT_SSA_BB          equ 1024
+INIT_SSA_INST        equ 16384
+INIT_SSA_PHI         equ 4096
+INIT_SSA_VREG        equ 8192
+INIT_SSA_POOL        equ 8192
+INIT_SSA_SLOTS       equ 1024
+SSA_VREG_STACK_DEPTH equ 64
+
+; SSA-specific opcodes (never in mir_buf, only in SSA IR)
+SSA_PHI    equ 200
+SSA_BRANCH equ 201
+SSA_JUMP   equ 202
+SSA_RETURN equ 203
+SSA_CONST  equ 204
+SSA_PARAM  equ 205
+SSA_NOP    equ 206
 
 ; MIR layout
 MIR_SIZE equ 24

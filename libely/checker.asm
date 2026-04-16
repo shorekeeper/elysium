@@ -966,6 +966,16 @@ ck_expr:
     je .rec_lit
     cmp rax, NODE_ARRAY
     je .arr_lit
+    cmp rax, NODE_UNARY_NEG
+    je .child1
+    cmp rax, NODE_UNARY_NOT
+    je .child1
+    cmp rax, NODE_UNARY_BNOT
+    je .child1
+    cmp rax, NODE_LOGIC_AND
+    je .binop
+    cmp rax, NODE_LOGIC_OR
+    je .binop
     jmp .done
 
 .ident:

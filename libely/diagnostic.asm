@@ -159,7 +159,7 @@ d_code_cnt: resq 16
 
 section .text
 
-; buffer management (all unchanged from previous version)
+; buffer management
 d_reset:
     mov qword[d_lpos], 0
     ret

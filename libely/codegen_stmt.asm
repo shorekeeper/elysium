@@ -118,7 +118,7 @@ compile_stmt:
     je .idx_set
     jmp .done
 
-; - LET: check if RHS is array -
+; LET: check if RHS is array
 .let:
     mov rdi,[r12+16]
     test rdi,rdi
@@ -190,7 +190,7 @@ compile_stmt:
     mov rbx,[rbx+32]
     jmp .arr_st
 
-; borrow handling (unchanged)
+; borrow handling
 .let_brw:
     mov rdi,[r12+16]
     mov r13,[rdi+8]

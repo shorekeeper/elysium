@@ -5,6 +5,8 @@
 *.elasm
 *.vbl
 *.cbt
+*.tex
+*_SSA
 
 /berlingo
 /elfdebug

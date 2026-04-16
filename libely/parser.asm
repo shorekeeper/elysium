@@ -2,7 +2,11 @@ default rel
 %include "defs.inc"
 extern lex_tokens,lex_token_count,new_node,platform_write
 extern resolve_type_token
-global parser_init,parser_run,parse_errors,parser_get_errors
+extern p_or
+extern p_bitor
+
+global parser_init, parser_run, parse_errors, parser_get_errors
+global ct, ea, pk, p_cmp, p_add, p_primary, p_postfix
 
 section .data
 ; ANSI-colored error prefix: "  [error]" in bold red
@@ -976,7 +980,19 @@ p_stmt:
     jmp .done
 .idx_bail:
     cmp rax,TOK_EQUALS
-    jne .idx_skip
+    je .assign_plain
+    cmp rax,TOK_PLUS_EQ
+    je .assign_cmpd
+    cmp rax,TOK_MINUS_EQ
+    je .assign_cmpd
+    cmp rax,TOK_STAR_EQ
+    je .assign_cmpd
+    cmp rax,TOK_SLASH_EQ
+    je .assign_cmpd
+    cmp rax,TOK_PERCENT_EQ
+    je .assign_cmpd
+    jmp .idx_skip
+.assign_plain:
     call ea
     call p_expr
     push rax
@@ -984,6 +1000,58 @@ p_stmt:
     call ex
     pop rbx
     call new_node
+    mov qword[rax],NODE_ASSIGN
+    mov [rax+48],r12
+    mov [rax+56],r13
+    mov [rax+16],rbx
+    jmp .done
+.assign_cmpd:
+    ; x op= e → x = x op e
+    ; rax = compound token, r12/r13 = var name
+    push rax               ; save compound token
+    call ea                ; consume it
+    call p_expr
+    mov r14,rax            ; r14 = RHS
+    mov rdi,TOK_SEMICOLON
+    call ex
+    ; build ident node for LHS
+    call new_node
+    mov qword[rax],NODE_IDENT
+    mov [rax+48],r12
+    mov [rax+56],r13
+    mov r15,rax            ; r15 = ident node
+    ; map compound → binary op
+    pop rbx
+    cmp rbx,TOK_PLUS_EQ
+    mov rcx,TOK_PLUS
+    je .ca_mk
+    cmp rbx,TOK_MINUS_EQ
+    mov rcx,TOK_MINUS
+    je .ca_mk
+    cmp rbx,TOK_STAR_EQ
+    mov rcx,TOK_STAR
+    je .ca_mk
+    cmp rbx,TOK_SLASH_EQ
+    mov rcx,TOK_SLASH
+    je .ca_mk
+    mov rcx,TOK_PERCENT
+.ca_mk:
+    ; build binop(op, ident, rhs)
+    push rcx
+    push r14
+    push r15
+    call new_node
+    pop r15
+    pop r14
+    pop rcx
+    mov qword[rax],NODE_BINOP
+    mov [rax+8],rcx
+    mov [rax+16],r15
+    mov [rax+24],r14
+    push rax
+    ; build assign(name, binop)
+    call new_node
+    pop rbx
     mov qword[rax],NODE_ASSIGN
     mov [rax+48],r12
     mov [rax+56],r13
@@ -1178,12 +1246,20 @@ p_stmt:
     cmp rax,TOK_ELSE
     jne .ifm
     call ea
+    call ct
+    cmp rax,TOK_IF
+    je .elseif
     mov rdi,TOK_LBRACE
     call ex
     call p_slist
     mov r14,rax
     mov rdi,TOK_RBRACE
     call ex
+    jmp .ifm
+.elseif:
+    ; else if → nested if statement as else branch
+    call p_stmt
+    mov r14,rax
 .ifm:call new_node
     mov qword[rax],NODE_IF
     mov [rax+16],r12
@@ -1419,7 +1495,7 @@ p_pipe:
     push r12
     push r13
     push r14
-    call p_cmp
+    call p_or
     mov r12,rax
 .l: call ct
     cmp rax,TOK_PIPE
@@ -1460,7 +1536,7 @@ p_cmp:
     push rcx
     push r12
     push r13
-    call p_add
+    call p_bitor
     mov r12,rax
     call ct
     cmp rax,TOK_EQ
@@ -1535,6 +1611,8 @@ p_term:
     je .op
     cmp rax,TOK_SLASH
     je .op
+    cmp rax,TOK_PERCENT
+    je .op
     mov rax,r12
     pop r12
     pop rcx
@@ -1590,6 +1668,12 @@ p_primary:
     push r14
     push r15
     call ct
+    cmp rax,TOK_MINUS
+    je .unary_neg
+    cmp rax,TOK_BANG
+    je .unary_not
+    cmp rax,TOK_TILDE
+    je .unary_bnot
     cmp rax,TOK_NUMBER
     je .num
     cmp rax,TOK_IDENT
@@ -1627,6 +1711,30 @@ p_primary:
     cmp rax,TOK_LBRACKET
     je .arr_lit
     xor rax,rax
+    jmp .d
+.unary_neg:
+    call ea
+    call p_primary
+    mov r12,rax
+    call new_node
+    mov qword[rax],NODE_UNARY_NEG
+    mov [rax+16],r12
+    jmp .d
+.unary_not:
+    call ea
+    call p_primary
+    mov r12,rax
+    call new_node
+    mov qword[rax],NODE_UNARY_NOT
+    mov [rax+16],r12
+    jmp .d
+.unary_bnot:
+    call ea
+    call p_primary
+    mov r12,rax
+    call new_node
+    mov qword[rax],NODE_UNARY_BNOT
+    mov [rax+16],r12
     jmp .d
 .num:mov r12,rbx
     call ea

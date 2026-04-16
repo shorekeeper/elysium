@@ -199,7 +199,7 @@ is_id_start:
     ret
 
 ; lexer_run: tokenize entire source buffer
-; r14 = cached pointer to source bytes (avoids reloading [lex_source_buf] every access)
+; r14 = cached pointer to source bytes
 lexer_run:
     push rbx
     push r12
@@ -224,7 +224,7 @@ lexer_run:
     je .ws
     cmp r8b,13
     je .ws
-    ; // comment
+    ; // line comment
     cmp r8b,'/'
     jne .nc
     lea rax,[rsi+1]
@@ -240,14 +240,18 @@ lexer_run:
 .ce:mov [lex_pos],rsi
     jmp .loop
 .nc:
+    ; identifier or keyword
     call is_id_start
     test al,al
     jnz .ident
+    ; number literal
     cmp r8b,'0'
     jb .nd
     cmp r8b,'9'
     jbe .num
-.nd:cmp r8b,'{'
+.nd:
+    ; multi-char and single-char operators
+    cmp r8b,'{'
     je .t_lb
     cmp r8b,'}'
     je .t_rb
@@ -259,12 +263,6 @@ lexer_run:
     je .t_se
     cmp r8b,','
     je .t_co
-    cmp r8b,'+'
-    je .t_pl
-    cmp r8b,'*'
-    je .t_st
-    cmp r8b,'&'
-    je .t_am
     cmp r8b,'_'
     je .t_us
     cmp r8b,'@'
@@ -273,26 +271,40 @@ lexer_run:
     je .t_lbk
     cmp r8b,']'
     je .t_rbk
+    cmp r8b,'+'
+    je .m_plus
     cmp r8b,'-'
     je .m_mi
-    cmp r8b,'='
-    je .m_eq
+    cmp r8b,'*'
+    je .m_star
+    cmp r8b,'/'
+    je .m_slash
+    cmp r8b,'%'
+    je .m_pct
+    cmp r8b,'&'
+    je .m_amp
+    cmp r8b,'|'
+    je .m_pi
+    cmp r8b,'^'
+    je .t_caret
+    cmp r8b,'~'
+    je .t_tilde
     cmp r8b,'!'
     je .m_ba
+    cmp r8b,'='
+    je .m_eq
     cmp r8b,'<'
     je .m_lt
     cmp r8b,'>'
     je .m_gt
-    cmp r8b,'|'
-    je .m_pi
-    cmp r8b,'/'
-    je .t_sl
     cmp r8b,':'
     je .m_cl
     cmp r8b,'.'
     je .m_dot
     cmp r8b,'"'
     je .str
+    cmp r8b,0x27         ; single quote for char literal
+    je .char_lit
 .ws:inc qword[lex_pos]
     jmp .loop
 
@@ -367,7 +379,7 @@ lexer_run:
     call add_tok
     jmp .loop
 
-; single-char tokens
+; simple single-char tokens
 .t_lb:mov rax,TOK_LBRACE
     jmp .sng
 .t_rb:mov rax,TOK_RBRACE
@@ -380,14 +392,6 @@ lexer_run:
     jmp .sng
 .t_co:mov rax,TOK_COMMA
     jmp .sng
-.t_pl:mov rax,TOK_PLUS
-    jmp .sng
-.t_st:mov rax,TOK_STAR
-    jmp .sng
-.t_sl:mov rax,TOK_SLASH
-    jmp .sng
-.t_am:mov rax,TOK_AMP
-    jmp .sng
 .t_us:mov rax,TOK_UNDERSCORE
     jmp .sng
 .t_at:mov rax,TOK_AT
@@ -396,7 +400,229 @@ lexer_run:
     jmp .sng
 .t_rbk:mov rax,TOK_RBRACKET
     jmp .sng
+.t_tilde:mov rax,TOK_TILDE
+    jmp .sng
+.t_caret:mov rax,TOK_CARET
+    jmp .sng
 .sng:inc qword[lex_pos]
+    xor rsi,rsi
+    xor rdx,rdx
+    call add_tok
+    jmp .loop
+
+; + or +=
+.m_plus:
+    lea rax,[rsi+1]
+    cmp rax,[lex_source_len]
+    jge .plus1
+    cmp byte[r14+rsi+1],'='
+    je .m_pluseq
+.plus1:mov rax,TOK_PLUS
+    jmp .sng
+.m_pluseq:
+    add qword[lex_pos],2
+    mov rax,TOK_PLUS_EQ
+    xor rsi,rsi
+    xor rdx,rdx
+    call add_tok
+    jmp .loop
+
+; - or -> or -=
+.m_mi:lea rax,[rsi+1]
+    cmp rax,[lex_source_len]
+    jge .mi1
+    cmp byte[r14+rsi+1],'>'
+    je .m_ar
+    cmp byte[r14+rsi+1],'='
+    je .m_minuseq
+.mi1:mov rax,TOK_MINUS
+    jmp .sng
+.m_ar:add qword[lex_pos],2
+    mov rax,TOK_ARROW
+    xor rsi,rsi
+    xor rdx,rdx
+    call add_tok
+    jmp .loop
+.m_minuseq:
+    add qword[lex_pos],2
+    mov rax,TOK_MINUS_EQ
+    xor rsi,rsi
+    xor rdx,rdx
+    call add_tok
+    jmp .loop
+
+; * or *=
+.m_star:
+    lea rax,[rsi+1]
+    cmp rax,[lex_source_len]
+    jge .star1
+    cmp byte[r14+rsi+1],'='
+    je .m_stareq
+.star1:mov rax,TOK_STAR
+    jmp .sng
+.m_stareq:
+    add qword[lex_pos],2
+    mov rax,TOK_STAR_EQ
+    xor rsi,rsi
+    xor rdx,rdx
+    call add_tok
+    jmp .loop
+
+; / or /= (note: // comment already handled above in .nc)
+.m_slash:
+    lea rax,[rsi+1]
+    cmp rax,[lex_source_len]
+    jge .slash1
+    cmp byte[r14+rsi+1],'='
+    je .m_slasheq
+.slash1:mov rax,TOK_SLASH
+    jmp .sng
+.m_slasheq:
+    add qword[lex_pos],2
+    mov rax,TOK_SLASH_EQ
+    xor rsi,rsi
+    xor rdx,rdx
+    call add_tok
+    jmp .loop
+
+; % or %=
+.m_pct:
+    lea rax,[rsi+1]
+    cmp rax,[lex_source_len]
+    jge .pct1
+    cmp byte[r14+rsi+1],'='
+    je .m_pcteq
+.pct1:mov rax,TOK_PERCENT
+    jmp .sng
+.m_pcteq:
+    add qword[lex_pos],2
+    mov rax,TOK_PERCENT_EQ
+    xor rsi,rsi
+    xor rdx,rdx
+    call add_tok
+    jmp .loop
+
+; & or &&
+.m_amp:
+    lea rax,[rsi+1]
+    cmp rax,[lex_source_len]
+    jge .amp1
+    cmp byte[r14+rsi+1],'&'
+    je .m_ampamp
+.amp1:mov rax,TOK_AMP
+    jmp .sng
+.m_ampamp:
+    add qword[lex_pos],2
+    mov rax,TOK_AND_AND
+    xor rsi,rsi
+    xor rdx,rdx
+    call add_tok
+    jmp .loop
+
+; | or |> or ||
+.m_pi:lea rax,[rsi+1]
+    cmp rax,[lex_source_len]
+    jge .bar
+    cmp byte[r14+rsi+1],'>'
+    je .m_pipe_gt
+    cmp byte[r14+rsi+1],'|'
+    je .m_oror
+.bar:mov rax,TOK_BAR
+    jmp .sng
+.m_pipe_gt:
+    add qword[lex_pos],2
+    mov rax,TOK_PIPE
+    xor rsi,rsi
+    xor rdx,rdx
+    call add_tok
+    jmp .loop
+.m_oror:
+    add qword[lex_pos],2
+    mov rax,TOK_OR_OR
+    xor rsi,rsi
+    xor rdx,rdx
+    call add_tok
+    jmp .loop
+
+; ! or !=
+.m_ba:lea rax,[rsi+1]
+    cmp rax,[lex_source_len]
+    jge .bang1
+    cmp byte[r14+rsi+1],'='
+    je .m_neq
+.bang1:mov rax,TOK_BANG
+    jmp .sng
+.m_neq:add qword[lex_pos],2
+    mov rax,TOK_NEQ
+    xor rsi,rsi
+    xor rdx,rdx
+    call add_tok
+    jmp .loop
+
+; = or == or =>
+.m_eq:lea rax,[rsi+1]
+    cmp rax,[lex_source_len]
+    jge .m_as
+    cmp byte[r14+rsi+1],'='
+    je .m_ee
+    cmp byte[r14+rsi+1],'>'
+    je .m_fa
+.m_as:mov rax,TOK_EQUALS
+    jmp .sng
+.m_ee:add qword[lex_pos],2
+    mov rax,TOK_EQ
+    xor rsi,rsi
+    xor rdx,rdx
+    call add_tok
+    jmp .loop
+.m_fa:add qword[lex_pos],2
+    mov rax,TOK_FATARROW
+    xor rsi,rsi
+    xor rdx,rdx
+    call add_tok
+    jmp .loop
+
+; < or <= or <<
+.m_lt:lea rax,[rsi+1]
+    cmp rax,[lex_source_len]
+    jge .lt1
+    cmp byte[r14+rsi+1],'='
+    je .m_le
+    cmp byte[r14+rsi+1],'<'
+    je .m_shl
+.lt1:mov rax,TOK_LT
+    jmp .sng
+.m_le:add qword[lex_pos],2
+    mov rax,TOK_LE
+    xor rsi,rsi
+    xor rdx,rdx
+    call add_tok
+    jmp .loop
+.m_shl:add qword[lex_pos],2
+    mov rax,TOK_SHL
+    xor rsi,rsi
+    xor rdx,rdx
+    call add_tok
+    jmp .loop
+
+; > or >= or >>
+.m_gt:lea rax,[rsi+1]
+    cmp rax,[lex_source_len]
+    jge .gt1
+    cmp byte[r14+rsi+1],'='
+    je .m_ge
+    cmp byte[r14+rsi+1],'>'
+    je .m_shr
+.gt1:mov rax,TOK_GT
+    jmp .sng
+.m_ge:add qword[lex_pos],2
+    mov rax,TOK_GE
+    xor rsi,rsi
+    xor rdx,rdx
+    call add_tok
+    jmp .loop
+.m_shr:add qword[lex_pos],2
+    mov rax,TOK_SHR
     xor rsi,rsi
     xor rdx,rdx
     call add_tok
@@ -419,7 +645,7 @@ lexer_run:
     call add_tok
     jmp .loop
 
-; colon / dcolon / atom
+; colon / dcolon / atom literal
 .m_cl:lea rax,[rsi+1]
     cmp rax,[lex_source_len]
     jge .cl_s
@@ -558,101 +784,62 @@ lexer_run:
     call add_tok
     jmp .loop
 
-; minus / arrow
-.m_mi:lea rax,[rsi+1]
-    cmp rax,[lex_source_len]
-    jge .mi1
-    cmp byte[r14+rsi+1],'>'
-    je .m_ar
-.mi1:mov rax,TOK_MINUS
-    jmp .sng
-.m_ar:add qword[lex_pos],2
-    mov rax,TOK_ARROW
-    xor rsi,rsi
+; char literal 'c' with escape support
+; emitted as TOK_NUMBER with the byte value
+.char_lit:
+    inc rsi
+    cmp rsi,[lex_source_len]
+    jge .cl_err
+    movzx r10d,byte[r14+rsi]
+    cmp r10b,'\'
+    jne .cl_plain
+    ; escape sequence inside char literal
+    inc rsi
+    cmp rsi,[lex_source_len]
+    jge .cl_err
+    movzx eax,byte[r14+rsi]
+    cmp al,'n'
+    je .cl_esc_n
+    cmp al,'t'
+    je .cl_esc_t
+    cmp al,'0'
+    je .cl_esc_z
+    cmp al,'\'
+    je .cl_esc_bs
+    cmp al,0x27
+    je .cl_esc_sq
+    ; unknown escape: use literal char
+    movzx r10d,al
+    jmp .cl_adv
+.cl_esc_n:mov r10d,10
+    jmp .cl_adv
+.cl_esc_t:mov r10d,9
+    jmp .cl_adv
+.cl_esc_z:xor r10d,r10d
+    jmp .cl_adv
+.cl_esc_bs:mov r10d,92
+    jmp .cl_adv
+.cl_esc_sq:mov r10d,0x27
+    jmp .cl_adv
+.cl_plain:
+    ; r10d already has the char value
+.cl_adv:
+    inc rsi
+    cmp rsi,[lex_source_len]
+    jge .cl_err
+    cmp byte[r14+rsi],0x27   ; closing single quote
+    jne .cl_err
+    inc rsi
+    mov [lex_pos],rsi
+    mov rax,TOK_NUMBER
+    mov rsi,r10
     xor rdx,rdx
     call add_tok
     jmp .loop
-
-; equals / == / =>
-.m_eq:lea rax,[rsi+1]
-    cmp rax,[lex_source_len]
-    jge .m_as
-    cmp byte[r14+rsi+1],'='
-    je .m_ee
-    cmp byte[r14+rsi+1],'>'
-    je .m_fa
-.m_as:mov rax,TOK_EQUALS
-    jmp .sng
-.m_ee:add qword[lex_pos],2
-    mov rax,TOK_EQ
-    xor rsi,rsi
-    xor rdx,rdx
-    call add_tok
+.cl_err:
+    ; malformed char literal, skip and continue
+    mov [lex_pos],rsi
     jmp .loop
-.m_fa:add qword[lex_pos],2
-    mov rax,TOK_FATARROW
-    xor rsi,rsi
-    xor rdx,rdx
-    call add_tok
-    jmp .loop
-
-; !=
-.m_ba:lea rax,[rsi+1]
-    cmp rax,[lex_source_len]
-    jge .ws
-    cmp byte[r14+rsi+1],'='
-    jne .ws
-    add qword[lex_pos],2
-    mov rax,TOK_NEQ
-    xor rsi,rsi
-    xor rdx,rdx
-    call add_tok
-    jmp .loop
-
-; < / <=
-.m_lt:lea rax,[rsi+1]
-    cmp rax,[lex_source_len]
-    jge .lt1
-    cmp byte[r14+rsi+1],'='
-    je .m_le
-.lt1:mov rax,TOK_LT
-    jmp .sng
-.m_le:add qword[lex_pos],2
-    mov rax,TOK_LE
-    xor rsi,rsi
-    xor rdx,rdx
-    call add_tok
-    jmp .loop
-
-; > / >=
-.m_gt:lea rax,[rsi+1]
-    cmp rax,[lex_source_len]
-    jge .gt1
-    cmp byte[r14+rsi+1],'='
-    je .m_ge
-.gt1:mov rax,TOK_GT
-    jmp .sng
-.m_ge:add qword[lex_pos],2
-    mov rax,TOK_GE
-    xor rsi,rsi
-    xor rdx,rdx
-    call add_tok
-    jmp .loop
-
-; | / |>
-.m_pi:lea rax,[rsi+1]
-    cmp rax,[lex_source_len]
-    jge .bar
-    cmp byte[r14+rsi+1],'>'
-    jne .bar
-    add qword[lex_pos],2
-    mov rax,TOK_PIPE
-    xor rsi,rsi
-    xor rdx,rdx
-    call add_tok
-    jmp .loop
-.bar:mov rax,TOK_BAR
-    jmp .sng
 
 ; end of file
 .eof:mov rax,TOK_EOF

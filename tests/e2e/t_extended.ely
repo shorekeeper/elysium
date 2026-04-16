@@ -1,0 +1,122 @@
+module Main {
+  fn abs(x) -> i64 {
+    if x < 0 {
+      return -x;
+    }
+    return x;
+  }
+
+  fn is_even(x) -> i64 {
+    return x % 2 == 0;
+  }
+
+  fn clamp(val, lo, hi) -> i64 {
+    if val < lo {
+      return lo;
+    }
+    if val > hi {
+      return hi;
+    }
+    return val;
+  }
+
+  public fn main() -> i64 {
+    // unary minus
+    let a = -42;
+    print(a);
+    print(-a);
+    print(abs(a));
+
+    // modulo
+    print(10 % 3);
+    print(7 % 7);
+    print(100 % 17);
+
+    // logical not
+    let t = 1;
+    let f = 0;
+    print(!f);
+    print(!t);
+    print(!!t);
+
+    // short-circuit &&
+    let x = 5;
+    if x > 0 && x < 10 {
+      print(1);
+    } else {
+      print(0);
+    }
+    if x > 100 && x < 200 {
+      print(1);
+    } else {
+      print(0);
+    }
+
+    // short-circuit ||
+    if x == 5 || x == 10 {
+      print(1);
+    } else {
+      print(0);
+    }
+    if x == 3 || x == 7 {
+      print(1);
+    } else {
+      print(0);
+    }
+
+    // else if chains
+    let grade = 85;
+    if grade >= 90 {
+      print(5);
+    } else if grade >= 80 {
+      print(4);
+    } else if grade >= 70 {
+      print(3);
+    } else {
+      print(2);
+    }
+
+    // compound assignment
+    let c = 10;
+    c += 5;
+    print(c);
+    c -= 3;
+    print(c);
+    c *= 2;
+    print(c);
+    c /= 6;
+    print(c);
+    c %= 3;
+    print(c);
+
+    // bitwise ops
+    print(6 & 3);
+    print(6 | 3);
+    print(6 ^ 3);
+    print(~0);
+    print(1 << 4);
+    print(256 >> 3);
+
+    // char literal
+    let ch = 'A';
+    print(ch);
+    let nl = '\n';
+    print(nl);
+
+    // combined: even check with && and %
+    let i = 0;
+    while i < 6 {
+      if is_even(i) && i > 0 {
+        print(i);
+      }
+      i += 1;
+    }
+
+    // clamp with else-if style logic
+    print(clamp(50, 0, 100));
+    print(clamp(-10, 0, 100));
+    print(clamp(200, 0, 100));
+
+    return 0;
+  }
+}

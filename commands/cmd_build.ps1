@@ -18,7 +18,9 @@ $compilerSrcs = @(
     "libely\codegen_rt", "libely\codegen_expr", "libely\codegen_stmt",
     "libely\codegen_func", "libely\backend", "libely\ir", "libely\lower",
     "libely\x86enc", "libely\pe64", "libely\typetab", "libely\checker",
-    "libely\diagnostic"
+    "libely\diagnostic",
+    "libely\parser_ext", "libely\lower_ext", "libely\x86enc_ext", "libely\ssa_ir",
+    "libely\ssa_lift", "libely\ssa_cfg"
 )
 
 $internalSrcs = @(
